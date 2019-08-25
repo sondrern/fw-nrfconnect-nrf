@@ -87,6 +87,8 @@ typedef int (*download_client_callback_t)(
  * @brief Download client instance.
  */
 struct download_client {
+	int dfuType;
+
 	/** HTTP socket. */
 	int fd;
 	/** HTTP response buffer. */

@@ -11,6 +11,7 @@
 #include <net/aws_jobs.h>
 #include <net/aws_fota.h>
 #include <logging/log.h>
+#include <pm_config.h>
 
 #include "aws_fota_json.h"
 
@@ -310,7 +311,7 @@ static int aws_fota_on_publish_evt(struct mqtt_client *const client,
 			execution_state = AWS_JOBS_IN_PROGRESS;
 			LOG_INF("Start downloading firmware from %s%s",
 				log_strdup(hostname), log_strdup(file_path));
-			err = fota_download_start(hostname, file_path);
+			err = fota_download_start(hostname, file_path, PM_MCUBOOT_SECONDARY_ID);
 			if (err) {
 				LOG_ERR("Error when trying to start firmware"
 				       "download: %d", err);
@@ -491,7 +492,7 @@ int aws_fota_init(struct mqtt_client *const client,
 		return err;
 	}
 
-	err = fota_download_init(http_fota_handler);
+	err = fota_download_init(http_fota_handler, 1);
 	if (err != 0) {
 		LOG_ERR("fota_download_init error %d", err);
 		return err;

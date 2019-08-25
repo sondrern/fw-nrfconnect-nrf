@@ -4,3 +4,9 @@ spm:
   size: CONFIG_PM_PARTITION_SIZE_SPM
   placement: {before: [app]}
   inside: [mcuboot_primary_app]
+dfugateway:
+  size: 0x20000
+  placement: {after: [app]}
+dfusensor:
+  size: 0x20000
+  placement: {after: [app]}

@@ -65,13 +65,16 @@ static int download_client_callback(const struct download_client_evt *event)
 			callback(FOTA_DOWNLOAD_EVT_ERROR);
 			return err;
 		}
-
-		err = boot_request_upgrade(BOOT_UPGRADE_TEST);
-		if (err != 0) {
-			LOG_ERR("boot_request_upgrade error %d", err);
-			callback(FOTA_DOWNLOAD_EVT_ERROR);
-			return err;
+		
+		if(dfu.dfuType == 1){
+			err = boot_request_upgrade(BOOT_UPGRADE_TEST);
+			if (err != 0) {
+				LOG_ERR("boot_request_upgrade error %d", err);
+				callback(FOTA_DOWNLOAD_EVT_ERROR);
+				return err;
+			}	
 		}
+		
 		err = download_client_disconnect(&dfu);
 		if (err != 0) {
 			LOG_ERR("download_client_disconncet error %d", err);
@@ -94,7 +97,7 @@ static int download_client_callback(const struct download_client_evt *event)
 	return 0;
 }
 
-int fota_download_start(char *host, char *file)
+int fota_download_start(char *host, char *file, u8_t id)
 {
 	if (host == NULL || file == NULL || callback == NULL) {
 		return -EINVAL;
@@ -105,7 +108,7 @@ int fota_download_start(char *host, char *file)
 		return -EALREADY;
 	}
 
-	int err = flash_img_init(&flash_img);
+	int err = flash_img_init(&flash_img, id);
 
 	if (err != 0) {
 		LOG_ERR("flash_img_init error %d", err);
@@ -128,7 +131,7 @@ int fota_download_start(char *host, char *file)
 	return 0;
 }
 
-int fota_download_init(fota_download_callback_t client_callback)
+int fota_download_init(fota_download_callback_t client_callback, u8_t dfuType)
 {
 	if (client_callback == NULL) {
 		return -EINVAL;
@@ -142,6 +145,7 @@ int fota_download_init(fota_download_callback_t client_callback)
 		LOG_ERR("download_client_init error %d", err);
 		return err;
 	}
+	dfu.dfuType = dfuType;
 
 	return 0;
 }

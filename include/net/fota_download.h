@@ -51,7 +51,7 @@ typedef void (*fota_download_callback_t)(enum fota_download_evt_id evt_id);
  * @retval 0 If successfully initialized.
  *           Otherwise, a negative value is returned.
  */
-int fota_download_init(fota_download_callback_t client_callback);
+int fota_download_init(fota_download_callback_t client_callback, u8_t dfuType);
 
 /**@brief Start downloading the given file from the given host.
  *
@@ -62,7 +62,7 @@ int fota_download_init(fota_download_callback_t client_callback);
  * @retval -EALREADY If download is already ongoing.
  *                   Otherwise, a negative value is returned.
  */
-int fota_download_start(char *host, char *file);
+int fota_download_start(char *host, char *file, u8_t id);
 
 #ifdef __cplusplus
 }
