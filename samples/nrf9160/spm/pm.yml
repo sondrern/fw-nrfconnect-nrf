@@ -10,3 +10,6 @@ dfugateway:
 dfusensor:
   size: 0x20000
   placement: {after: [app]}
+userdata:
+  size: 0x20000
+  placement: {after: [app]}
