@@ -51,6 +51,7 @@ void spm_request_system_reboot(void);
  */
 int spm_request_random_number(u8_t *output, size_t len, size_t *olen);
 
+int spm_request_read(void *destination, u32_t addr, size_t len);
 
 #ifdef __cplusplus
 }

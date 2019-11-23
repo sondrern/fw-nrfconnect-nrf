@@ -70,3 +70,17 @@ int spm_request_random_number(u8_t *output, size_t len, size_t *olen)
 	return err;
 }
 #endif /* CONFIG_SPM_SERVICE_RNG */
+
+__TZ_NONSECURE_ENTRY_FUNC
+int spm_request_read(void *destination, u32_t addr, size_t len)
+{
+
+	if (destination == NULL || len <= 0) {
+		return -EINVAL;
+	}
+
+	memcpy(destination, (const void *)addr, len);
+	return 0;
+
+	return -EPERM;
+}
