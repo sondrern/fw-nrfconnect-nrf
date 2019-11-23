@@ -185,32 +185,100 @@ struct bt_scan_init_param {
 	const struct bt_le_conn_param *conn_param;
 };
 
+/**@brief Name filter status structure, used to inform the application
+ *        which name filter is matched.
+ */
+struct bt_scan_name_filter_status {
+	/** Set to true if this type of filter is matched. */
+	bool match;
+
+	/** Pointer to the matched filter name. */
+	const char *name;
+
+	/** Length of the matched name. */
+	u8_t len;
+};
+
+/**@brief Address filter status structure, used to inform the application
+ *        which address filter is matched.
+ */
+struct bt_scan_addr_filter_status {
+	/** Set to true if this type of filter is matched. */
+	bool match;
+
+	/** Pointer to the matched filter address. */
+	const bt_addr_le_t *addr;
+};
+
+/**@brief UUID filter status structure, used to inform the application
+ *        which UUID filters are matched.
+ */
+struct bt_scan_uuid_filter_status {
+	/** Set to true if this type of filter is matched. */
+	bool match;
+
+	/** Array of pointers to the matched UUID filters. */
+	const struct bt_uuid *uuid[CONFIG_BT_SCAN_UUID_CNT];
+
+	/** Matched UUID count. */
+	u8_t count;
+};
+
+/**@brief Appearance filter status structure, used to inform the application
+ *        which appearance filter is matched.
+ */
+struct bt_scan_appearance_filter_status {
+	/** Set to true if this type of filter is matched. */
+	bool match;
+
+	/** Pointer to the matched filter appearance. */
+	const u16_t *appearance;
+};
+
+/**@brief Manufacturer data filter status structure, used to inform the
+ *        application which manufacturer data filter is matched.
+ */
+struct bt_scan_manufacturer_data_filter_status {
+	/** Set to true if this type of filter is matched. */
+	bool match;
+
+	/** Pointer to the matched filter manufacturer data. */
+	const u8_t *data;
+
+	/** Length of the matched manufacturer data. */
+	u8_t len;
+};
+
 /**@brief Structure for setting the filter status.
  *
  * @details This structure is used for sending
  *          filter status to the main application.
+ *          Filter status contains information about which
+ *          kind of filter is matched and also appropriate
+ *          filter data.
+ *
  */
 struct bt_scan_filter_match {
-	/** Set to 1 if name filter is matched. */
-	u8_t name : 1;
+	/** Name filter status data. */
+	struct bt_scan_name_filter_status name;
 
-	/** Set to 1 if address filter is matched. */
-	u8_t address : 1;
+	/** Short name filter status data. */
+	struct bt_scan_name_filter_status short_name;
 
-	/** Set to 1 if uuid filter is matched. */
-	u8_t uuid : 1;
+	/** Address filter status data. */
+	struct bt_scan_addr_filter_status addr;
 
-	/** Set to 1 if appearance filter is matched. */
-	u8_t appearance: 1;
+	/** UUIDs filter status data. */
+	struct bt_scan_uuid_filter_status uuid;
 
-	/** Set to 1 if short name filter is matched. */
-	u8_t short_name : 1;
+	/** Appearance filter status data. */
+	struct bt_scan_appearance_filter_status appearance;
 
-	/** Set to 1 if manufacturer data filter is matched. */
-	u8_t manufacturer_data : 1;
+	/** Manufacturer data filter status data. */
+	struct bt_scan_manufacturer_data_filter_status manufacturer_data;
 };
 
-/**@brief Structure contains device data needed to establish
+/**@brief Structure containing device data needed to establish
  *        connection and advertising information.
  */
 struct bt_scan_device_info {
@@ -224,17 +292,40 @@ struct bt_scan_device_info {
 	const struct bt_le_conn_param *conn_param;
 };
 
-/** @brief Scanning callback structure.
+/** @brief Initializing macro for scanning module.
  *
- *  This structure is used for tracking the state of a scanning.
- *  It is registered with the help of the @ref bt_scan_cb_register() API.
- *  It's permissible to register multiple instances of this @ref bt_scan_cb
- *  type, in case different modules of an application are interested in
- *  tracking the scanning state. If a callback is not of interest for
- *  an instance, it may be set to NULL and will as a consequence not be
- *  used for that instance.
+ * This is macro initializing necessary structures for @ref bt_scan_cb type.
+ *
+ * @param[in] _name Unique name for @ref bt_scan_cb structure.
+ * @param[in] match_fun Scan filter matched function pointer.
+ * @param[in] no_match_fun Scan filter unmatched (the device was not found)
+		 function pointer.
+ * @param[in] error_fun Error when connecting function pointer.
+ * @param[in] connecting_fun Connecting data function pointer.
  */
-struct bt_scan_cb {
+
+#define BT_SCAN_CB_INIT(_name,				\
+			match_fun,			\
+			no_match_fun,			\
+			error_fun,			\
+			connecting_fun)			\
+	static const struct cb_data _name ## _data = { 	\
+		.filter_match = match_fun,		\
+		.filter_no_match = no_match_fun,	\
+		.connecting_error = error_fun,		\
+		.connecting = connecting_fun,		\
+	};						\
+	static struct bt_scan_cb _name = {		\
+		.cb_addr = &_name ## _data,		\
+	}
+
+/** @brief Data for scanning callback structure.
+ *
+ * This structure is used for storing callback functions pointers.
+ * It is used by @ref bt_scan_cb structure.
+ */
+
+struct cb_data {
 	/**@brief Scan filter matched.
 	 *
 	 * @param[in] device_info Data needed to establish
@@ -274,6 +365,21 @@ struct bt_scan_cb {
 	void (*connecting)(struct bt_scan_device_info *device_info,
 			   struct bt_conn *conn);
 
+};
+
+/** @brief Scanning callback structure.
+ *
+ *  This structure is used for tracking the state of a scanning.
+ *  It is registered with the help of the @ref bt_scan_cb_register() API.
+ *  It's permissible to register multiple instances of this @ref bt_scan_cb
+ *  type, in case different modules of an application are interested in
+ *  tracking the scanning state. If a callback is not of interest for
+ *  an instance, it may be set to NULL and will as a consequence not be
+ *  used for that instance.
+ */
+
+struct bt_scan_cb {
+	const struct cb_data *cb_addr;
 	sys_snode_t node;
 };
 
@@ -284,7 +390,6 @@ struct bt_scan_cb {
  * @param cb Callback struct.
  */
 void bt_scan_cb_register(struct bt_scan_cb *cb);
-
 
 /**@brief Function for initializing the Scanning Module.
  *

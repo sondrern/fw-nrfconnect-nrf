@@ -14,7 +14,6 @@
 
 #include <device.h>
 #include <soc.h>
-#include <gpio.h>
 
 #include <bluetooth/bluetooth.h>
 #include <bluetooth/uuid.h>
@@ -22,6 +21,10 @@
 #include <bluetooth/hci.h>
 
 #include <bluetooth/services/nus.h>
+
+#include <dk_buttons_and_leds.h>
+
+#include <settings/settings.h>
 
 #include <stdio.h>
 
@@ -31,30 +34,22 @@
 #define DEVICE_NAME             CONFIG_BT_DEVICE_NAME
 #define DEVICE_NAME_LEN	        (sizeof(DEVICE_NAME) - 1)
 
-/* Change this if you have an LED connected to a custom port */
-#define LED_PORT                LED0_GPIO_CONTROLLER
-
-#define RUN_STATUS_LED          LED0_GPIO_PIN
+#define RUN_STATUS_LED          DK_LED1
 #define RUN_LED_BLINK_INTERVAL  1000
 
-#define CON_STATUS_LED          LED0_GPIO_PIN
+#define CON_STATUS_LED          DK_LED2
 
-#define LED_ON                  0
-#define LED_OFF                 1
+#define KEY_PASSKEY_ACCEPT DK_BTN1_MSK
+#define KEY_PASSKEY_REJECT DK_BTN2_MSK
 
 #define UART_BUF_SIZE           CONFIG_BT_GATT_NUS_UART_BUFFER_SIZE
 
 static K_SEM_DEFINE(ble_init_ok, 0, 2);
 
 static struct bt_conn *current_conn;
+static struct bt_conn *auth_conn;
 
-static struct device  *led_port;
 static struct device  *uart;
-
-static u32_t led_pins[] = {LED0_GPIO_PIN,
-			   LED1_GPIO_PIN,
-			   LED2_GPIO_PIN,
-			   LED3_GPIO_PIN};
 
 struct uart_data_t {
 	void  *fifo_reserved;
@@ -73,13 +68,6 @@ static const struct bt_data ad[] = {
 static const struct bt_data sd[] = {
 	BT_DATA_BYTES(BT_DATA_UUID128_ALL, NUS_UUID_SERVICE),
 };
-
-static void set_led_state(int led, bool state)
-{
-	if (led_port) {
-		gpio_pin_write(led_port, led, state);
-	}
-}
 
 static void uart_cb(struct device *uart)
 {
@@ -172,32 +160,55 @@ static int init_uart(void)
 
 static void connected(struct bt_conn *conn, u8_t err)
 {
+	char addr[BT_ADDR_LE_STR_LEN];
+
 	if (err) {
 		printk("Connection failed (err %u)\n", err);
 		return;
 	}
 
-	printk("Connected\n");
+	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+	printk("Connected %s\n", addr);
+
 	current_conn = bt_conn_ref(conn);
 
-	set_led_state(CON_STATUS_LED, LED_ON);
+	dk_set_led_on(CON_STATUS_LED);
 }
 
 static void disconnected(struct bt_conn *conn, u8_t reason)
 {
-	printk("Disconnected (reason %u)\n", reason);
+	char addr[BT_ADDR_LE_STR_LEN];
+
+	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+
+	printk("Disconnected: %s (reason %u)\n", addr, reason);
+
+	if (auth_conn) {
+		bt_conn_unref(auth_conn);
+		auth_conn = NULL;
+	}
 
 	if (current_conn) {
 		bt_conn_unref(current_conn);
 		current_conn = NULL;
-		set_led_state(CON_STATUS_LED, LED_OFF);
+		dk_set_led_off(CON_STATUS_LED);
 	}
 }
 
 #ifdef CONFIG_BT_GATT_NUS_SECURITY_ENABLED
-static void security_changed(struct bt_conn *conn, bt_security_t level)
+static void security_changed(struct bt_conn *conn, bt_security_t level,
+			     enum bt_security_err err)
 {
-	printk("Security level was raised to %d\n", level);
+	char addr[BT_ADDR_LE_STR_LEN];
+
+	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+
+	if (!err) {
+		printk("Security changed: %s level %u\n", addr, level);
+	} else {
+		printk("Security failed: %s level %u err %d\n", addr, level,
+			err);
+	}
 }
 #endif
 
@@ -219,6 +230,19 @@ static void auth_passkey_display(struct bt_conn *conn, unsigned int passkey)
 	printk("Passkey for %s: %06u\n", addr, passkey);
 }
 
+static void auth_passkey_confirm(struct bt_conn *conn, unsigned int passkey)
+{
+	char addr[BT_ADDR_LE_STR_LEN];
+
+	auth_conn = bt_conn_ref(conn);
+
+	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+
+	printk("Passkey for %s: %06u\n", addr, passkey);
+	printk("Press Button 1 to confirm, Button 2 to reject.\n");
+}
+
+
 static void auth_cancel(struct bt_conn *conn)
 {
 	char addr[BT_ADDR_LE_STR_LEN];
@@ -228,10 +252,46 @@ static void auth_cancel(struct bt_conn *conn)
 	printk("Pairing cancelled: %s\n", addr);
 }
 
+
+static void pairing_confirm(struct bt_conn *conn)
+{
+	char addr[BT_ADDR_LE_STR_LEN];
+
+	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+
+	bt_conn_auth_pairing_confirm(conn);
+
+	printk("Pairing confirmed: %s\n", addr);
+}
+
+
+static void pairing_complete(struct bt_conn *conn, bool bonded)
+{
+	char addr[BT_ADDR_LE_STR_LEN];
+
+	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+
+	printk("Pairing completed: %s, bonded: %d\n", addr, bonded);
+}
+
+
+static void pairing_failed(struct bt_conn *conn, enum bt_security_err reason)
+{
+	char addr[BT_ADDR_LE_STR_LEN];
+
+	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+
+	printk("Pairing failed conn: %s, reason %d\n", addr, reason);
+}
+
+
 static struct bt_conn_auth_cb conn_auth_callbacks = {
 	.passkey_display = auth_passkey_display,
-	.passkey_entry = NULL,
+	.passkey_confirm = auth_passkey_confirm,
 	.cancel = auth_cancel,
+	.pairing_confirm = pairing_confirm,
+	.pairing_complete = pairing_complete,
+	.pairing_failed = pairing_failed
 };
 #else
 static struct bt_conn_auth_cb conn_auth_callbacks;
@@ -293,6 +353,10 @@ static void bt_ready(int err)
 		return;
 	}
 
+	if (IS_ENABLED(CONFIG_SETTINGS)) {
+		settings_load();
+	}
+
 	err = bt_gatt_nus_init(&nus_cb);
 	if (err) {
 		printk("Failed to initialize UART service (err: %d)\n", err);
@@ -312,68 +376,57 @@ static void bt_ready(int err)
 	k_sem_give(&ble_init_ok);
 }
 
-static int init_leds(void)
-{
-	int err = 0;
-
-	led_port = device_get_binding(LED_PORT);
-
-	if (!led_port) {
-		printk("Could not bind to LED port\n");
-		return -ENXIO;
-	}
-
-	err = gpio_pin_configure(led_port, RUN_STATUS_LED,
-			   GPIO_DIR_OUT);
-	if (!err) {
-		err = gpio_pin_configure(led_port, CON_STATUS_LED,
-			   GPIO_DIR_OUT);
-	}
-
-	if (!err) {
-		err = gpio_pin_write(led_port, RUN_STATUS_LED, LED_OFF);
-	}
-
-	if (!err) {
-		err = gpio_pin_write(led_port, CON_STATUS_LED, LED_OFF);
-	}
-
-	if (err) {
-		printk("Not able to correctly initialize LED pins (err:%d)",
-			err);
-		led_port = NULL;
-	}
-
-	return err;
-}
-
 void error(void)
 {
-	int err = -1;
-
-	led_port = device_get_binding(LED_PORT);
-	if (led_port) {
-		for (size_t i = 0; i < ARRAY_SIZE(led_pins); i++) {
-			err = gpio_pin_configure(led_port, led_pins[i],
-						 GPIO_DIR_OUT);
-			if (err) {
-				break;
-			}
-		}
-	}
-
-	if (!err) {
-		for (size_t i = 0; i < ARRAY_SIZE(led_pins); i++) {
-			err = gpio_pin_write(led_port, led_pins[i], LED_ON);
-			if (err) {
-				break;
-			}
-		}
-	}
+	dk_set_leds_state(DK_ALL_LEDS_MSK, DK_NO_LEDS_MSK);
 
 	while (true) {
 		/* Spin for ever */
 		k_sleep(1000);
+	}
+}
+
+static void num_comp_reply(bool accept)
+{
+	if (accept) {
+		bt_conn_auth_passkey_confirm(auth_conn);
+		printk("Numeric Match, conn %p\n", auth_conn);
+	} else {
+		bt_conn_auth_cancel(auth_conn);
+		printk("Numeric Reject, conn %p\n", auth_conn);
+	}
+
+	bt_conn_unref(auth_conn);
+	auth_conn = NULL;
+}
+
+void button_changed(u32_t button_state, u32_t has_changed)
+{
+	u32_t buttons = button_state & has_changed;
+
+	if (auth_conn) {
+		if (buttons & KEY_PASSKEY_ACCEPT) {
+			num_comp_reply(true);
+		}
+
+		if (buttons & KEY_PASSKEY_REJECT) {
+			num_comp_reply(false);
+		}
+	}
+}
+
+static void configure_gpio(void)
+{
+	int err;
+
+	err = dk_buttons_init(button_changed);
+	if (err) {
+		printk("Cannot init buttons (err: %d)\n", err);
+	}
+
+	err = dk_leds_init();
+	if (err) {
+		printk("Cannot init LEDs (err: %d)\n", err);
 	}
 }
 
@@ -388,6 +441,8 @@ static void led_blink_thread(void)
 	if (!err) {
 		err = bt_enable(bt_ready);
 	}
+
+	configure_gpio();
 
 	if (!err) {
 		bt_conn_cb_register(&conn_callbacks);
@@ -410,10 +465,8 @@ static void led_blink_thread(void)
 		error();
 	}
 
-	init_leds();
-
 	for (;;) {
-		set_led_state(RUN_STATUS_LED, (++blink_status) % 2);
+		dk_set_led(RUN_STATUS_LED, (++blink_status) % 2);
 		k_sleep(RUN_LED_BLINK_INTERVAL);
 	}
 }

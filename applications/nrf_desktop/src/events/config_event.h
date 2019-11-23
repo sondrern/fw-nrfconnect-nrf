@@ -39,6 +39,7 @@ extern "C" {
 
 #define EVENT_GROUP_SETUP	0x1
 #define EVENT_GROUP_DFU		0x2
+#define EVENT_GROUP_LED_STREAM	0x3
 
 
 /* Config event, setup group macros */
@@ -59,7 +60,6 @@ extern "C" {
 						       MOD_FIELD_SET(module) | OPT_FIELD_SET(option))
 
 #define SETUP_MODULE_SENSOR	0x1
-#define SETUP_MODULE_LED	0x2
 
 
 /* Config event, setup group, sensor module macros */
@@ -69,7 +69,15 @@ extern "C" {
 #define SENSOR_OPT_DOWNSHIFT_REST2	0x3
 #define SENSOR_OPT_COUNT 4
 
+/* Config event, DFU group macros */
+#define DFU_START	0x0
+#define DFU_DATA	0x1
+#define DFU_SYNC	0x2
+#define DFU_REBOOT	0x3
+#define DFU_IMGINFO	0x4
 
+/* Config event, led stream group macros */
+#define LED_STREAM_DATA 0x0
 
 /** @brief Configuration channel event.
  * Used to change firmware parameters at runtime.
@@ -92,6 +100,7 @@ struct config_fetch_event {
 
 	u16_t recipient;
 	u8_t id;
+	void *channel_id;
 	struct event_dyndata dyndata;
 };
 
@@ -105,23 +114,10 @@ struct config_fetch_request_event {
 
 	u16_t recipient;
 	u8_t id;
+	void *channel_id;
 };
 
 EVENT_TYPE_DECLARE(config_fetch_request_event);
-
-/** @brief Configuration channel forward event.
- * Used to pass configuration from dongle to connected devices.
- */
-struct config_forward_event {
-	struct event_header header;
-
-	u16_t recipient;
-	u8_t id;
-	struct event_dyndata dyndata;
-};
-
-EVENT_TYPE_DYNDATA_DECLARE(config_forward_event);
-
 
 enum config_status {
 	CONFIG_STATUS_SUCCESS,
@@ -132,6 +128,35 @@ enum config_status {
 	CONFIG_STATUS_WRITE_ERROR,
 	CONFIG_STATUS_DISCONNECTED_ERROR,
 };
+
+/** @brief Configuration channel forward event.
+ * Used to pass configuration from dongle to connected devices.
+ */
+struct config_forward_event {
+	struct event_header header;
+
+	u16_t recipient;
+	u8_t id;
+	enum config_status status;
+
+	struct event_dyndata dyndata;
+};
+
+EVENT_TYPE_DYNDATA_DECLARE(config_forward_event);
+
+/** @brief Configuration channel forward get event.
+ * Used to forward configuration channel get request to connected devices.
+ */
+struct config_forward_get_event {
+	struct event_header header;
+
+	u16_t recipient;
+	u8_t id;
+	void *channel_id;
+	enum config_status status;
+};
+
+EVENT_TYPE_DECLARE(config_forward_get_event);
 
 /** @brief Configuration channel forwarded event.
  * Used to confirm that event has been successfully forwarded.

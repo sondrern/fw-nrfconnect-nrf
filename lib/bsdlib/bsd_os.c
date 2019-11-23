@@ -15,6 +15,7 @@
 #include <zephyr.h>
 #include <zephyr/types.h>
 #include <errno.h>
+#include <logging/log.h>
 
 #ifdef CONFIG_BSD_LIBRARY_TRACE_ENABLED
 #include <nrfx_uarte.h>
@@ -50,6 +51,8 @@ static const nrfx_uarte_t uarte_inst = NRFX_UARTE_INSTANCE(1);
 void IPC_IRQHandler(void);
 
 #define THREAD_MONITOR_ENTRIES 10
+
+LOG_MODULE_REGISTER(bsdlib);
 
 struct sleeping_thread {
 	sys_snode_t node;
@@ -220,6 +223,9 @@ void bsd_os_errno_set(int err_code)
 	case NRF_EIO:
 		errno = EIO;
 		break;
+	case NRF_ENOEXEC:
+		errno = ENOEXEC;
+		break;
 	case NRF_EBADF:
 		errno = EBADF;
 		break;
@@ -268,6 +274,9 @@ void bsd_os_errno_set(int err_code)
 	case NRF_ENETUNREACH:
 		errno = ENETUNREACH;
 		break;
+	case NRF_ENETRESET:
+		errno = ENETRESET;
+		break;
 	case NRF_ECONNRESET:
 		errno = ECONNRESET;
 		break;
@@ -304,8 +313,17 @@ void bsd_os_errno_set(int err_code)
 	case NRF_EKEYREJECTED:
 		errno = EKEYREJECTED;
 		break;
+	case NRF_EMSGSIZE:
+		errno = EMSGSIZE;
+		break;
 	default:
-		errno = EINVAL;
+		/* Catch untranslated errnos.
+		 * Log the untranslated errno and return a magic value
+		 * to make sure this situation is clearly distinguishable.
+		 */
+		__ASSERT(false, "Untranslated errno %d set by bsdlib!", err_code);
+		LOG_ERR("Untranslated errno %d set by bsdlib!", err_code);
+		errno = 0xBAADBAAD;
 		break;
 	}
 }
@@ -389,10 +407,10 @@ void trace_uart_init(void)
 	/* UART pins are defined in "nrf9160_pca10090.dts". */
 	const nrfx_uarte_config_t config = {
 		/* Use UARTE1 pins routed on VCOM2. */
-		.pseltxd = DT_NORDIC_NRF_UARTE_1_TX_PIN,
-		.pselrxd = DT_NORDIC_NRF_UARTE_1_RX_PIN,
-		.pselcts = DT_NORDIC_NRF_UARTE_1_CTS_PIN,
-		.pselrts = DT_NORDIC_NRF_UARTE_1_RTS_PIN,
+		.pseltxd = DT_NORDIC_NRF_UARTE_UART_1_TX_PIN,
+		.pselrxd = DT_NORDIC_NRF_UARTE_UART_1_RX_PIN,
+		.pselcts = NRF_UARTE_PSEL_DISCONNECTED,
+		.pselrts = NRF_UARTE_PSEL_DISCONNECTED,
 
 		.hwfc = NRF_UARTE_HWFC_DISABLED,
 		.parity = NRF_UARTE_PARITY_EXCLUDED,
@@ -425,9 +443,10 @@ void bsd_os_init(void)
 int32_t bsd_os_trace_put(const uint8_t * const data, uint32_t len)
 {
 #ifdef CONFIG_BSD_LIBRARY_TRACE_ENABLED
-	/* FIXME: Due to a bug in nrfx, max DMA transfers are 255 bytes. */
-
-	/* Split RAM buffer into smaller chunks to be transferred using DMA. */
+	/* Max DMA transfers are 255 bytes.
+	 * Split RAM buffer into smaller chunks
+	 * to be transferred using DMA.
+	 */
 	u32_t remaining_bytes = len;
 
 	while (remaining_bytes) {

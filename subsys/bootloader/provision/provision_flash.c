@@ -7,11 +7,10 @@
 #include "provision.h"
 #include <string.h>
 #include <stdbool.h>
-#include <generated_dts_board.h>
 #include <errno.h>
-#include "bootloader.h"
 #include <nrf.h>
 #include <assert.h>
+#include <pm_config.h>
 
 typedef struct {
 	u32_t s0_address;
@@ -21,7 +20,7 @@ typedef struct {
 } provision_flash_t;
 
 static const provision_flash_t *p_provision_data =
-	(provision_flash_t *)DT_FLASH_AREA_PROVISION_OFFSET;
+	(provision_flash_t *)PM_PROVISION_ADDRESS;
 
 u32_t s0_address_read(void)
 {
@@ -51,7 +50,7 @@ int public_key_data_read(u32_t key_idx, u32_t *p_buf, size_t buf_size)
 	}
 
 	p_key = &(p_provision_data->pkd[key_idx *
-			CONFIG_SB_PUBLIC_KEY_HASH_LEN]);
+			CONFIG_SB_PUBLIC_KEY_HASH_LEN / 4]);
 
 #ifdef CONFIG_SOC_NRF9160
 	/* Ensure word alignment, as provision data is stored in memory region

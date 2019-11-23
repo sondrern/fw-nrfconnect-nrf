@@ -25,6 +25,8 @@ In addition, the |NCS| provides the following samples that showcase the use of a
 
    ../../samples/nfc/*/README
 
+.. _nrf9160_samples:
+
 .. toctree::
    :maxdepth: 1
    :caption: nRF9160 samples:
@@ -39,5 +41,7 @@ In addition, the |NCS| provides the following samples that showcase the use of a
 
    ../../samples/*/README
    ../../samples/debug/*/README
+   ../../samples/sensor/*/README
+   ../../samples/usb/*/README
 
 For more complex examples, see :ref:`applications`.

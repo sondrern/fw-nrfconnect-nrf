@@ -13,39 +13,60 @@
 #include <ble_controller_soc.h>
 #include <multithreading_lock.h>
 #if IS_ENABLED(CONFIG_USB_NRF52840)
-#include <nrf_power.h>
+#include <hal/nrf_power.h>
 #endif
 
 static int hf_clock_start(struct device *dev, clock_control_subsys_t sub_system)
 {
+	int errcode;
+
 	ARG_UNUSED(dev);
 
-	int errcode = MULTITHREADING_LOCK_ACQUIRE();
+	bool blocking = POINTER_TO_UINT(sub_system);
 
-	if (errcode == 0) {
-		errcode = ble_controller_hf_clock_request(NULL);
-		MULTITHREADING_LOCK_RELEASE();
+	if (!k_is_in_isr()) {
+		errcode = MULTITHREADING_LOCK_ACQUIRE();
+	} else { /* in isr */
+		errcode = MULTITHREADING_LOCK_ACQUIRE_NO_WAIT();
 	}
-	if (errcode != 0) {
+	if (errcode) {
 		return -EFAULT;
 	}
 
-	bool blocking = POINTER_TO_UINT(sub_system);
+	errcode = ble_controller_hf_clock_request(NULL);
+	MULTITHREADING_LOCK_RELEASE();
+	if (errcode) {
+		return -EFAULT;
+	}
 
 	if (blocking) {
 		bool is_running = false;
 
-		while (!is_running) {
-			errcode = MULTITHREADING_LOCK_ACQUIRE();
-			if (errcode == 0) {
-				errcode = ble_controller_hf_clock_is_running(
-					&is_running);
-				MULTITHREADING_LOCK_RELEASE();
+		do {
+			if (!k_is_in_isr()) {
+				errcode = MULTITHREADING_LOCK_ACQUIRE();
+			} else { /* in isr */
+				errcode = MULTITHREADING_LOCK_ACQUIRE_NO_WAIT();
 			}
-			if (errcode != 0) {
+			if (errcode) {
 				return -EFAULT;
 			}
-		}
+
+			errcode = ble_controller_hf_clock_is_running(&is_running);
+			MULTITHREADING_LOCK_RELEASE();
+			if (errcode) {
+				return -EFAULT;
+			}
+
+			if (!is_running) {
+				if (!k_is_in_isr()) {
+					k_yield();
+				} else { /* in isr */
+					k_cpu_idle();
+				}
+
+			}
+		} while (!is_running);
 	}
 
 	return 0;
@@ -53,16 +74,23 @@ static int hf_clock_start(struct device *dev, clock_control_subsys_t sub_system)
 
 static int hf_clock_stop(struct device *dev, clock_control_subsys_t sub_system)
 {
+	int errcode;
+
 	ARG_UNUSED(dev);
 	ARG_UNUSED(sub_system);
 
-	int errcode = MULTITHREADING_LOCK_ACQUIRE();
-
-	if (errcode == 0) {
-		errcode = ble_controller_hf_clock_release();
-		MULTITHREADING_LOCK_RELEASE();
+	if (!k_is_in_isr()) {
+		errcode = MULTITHREADING_LOCK_ACQUIRE();
+	} else {
+		errcode = MULTITHREADING_LOCK_ACQUIRE_NO_WAIT();
 	}
-	if (errcode != 0) {
+	if (errcode) {
+		return -EFAULT;
+	}
+
+	errcode = ble_controller_hf_clock_release();
+	MULTITHREADING_LOCK_RELEASE();
+	if (errcode) {
 		return -EFAULT;
 	}
 
@@ -156,9 +184,10 @@ static int clock_control_init(struct device *dev)
 	 * ble_init() at PRE_KERNEL_1. ble_init() will call
 	 * ble_controller_init() that in turn will start the LFCLK.
 	 */
-	IRQ_CONNECT(DT_NORDIC_NRF_CLOCK_0_IRQ_0,
-		    DT_NORDIC_NRF_CLOCK_0_IRQ_0_PRIORITY,
+	IRQ_CONNECT(DT_INST_0_NORDIC_NRF_CLOCK_IRQ_0,
+		    DT_INST_0_NORDIC_NRF_CLOCK_IRQ_0_PRIORITY,
 		    nrf_power_clock_isr, 0, 0);
+
 	return 0;
 }
 
@@ -169,7 +198,7 @@ static const struct clock_control_driver_api hf_clock_control_api = {
 };
 
 DEVICE_AND_API_INIT(hf_clock,
-		    DT_NORDIC_NRF_CLOCK_0_LABEL "_16M",
+		    DT_INST_0_NORDIC_NRF_CLOCK_LABEL "_16M",
 		    clock_control_init, NULL, NULL, PRE_KERNEL_1,
 		    CONFIG_KERNEL_INIT_PRIORITY_DEVICE, &hf_clock_control_api);
 
@@ -183,7 +212,7 @@ static const struct clock_control_driver_api lf_clock_control_api = {
 };
 
 DEVICE_AND_API_INIT(lf_clock,
-		    DT_NORDIC_NRF_CLOCK_0_LABEL "_32K",
+		    DT_INST_0_NORDIC_NRF_CLOCK_LABEL "_32K",
 		    clock_control_init, NULL, NULL, PRE_KERNEL_1,
 		    CONFIG_KERNEL_INIT_PRIORITY_DEVICE, &lf_clock_control_api);
 
@@ -200,7 +229,7 @@ void nrf5_power_usb_power_int_enable(bool enable)
 
 	if (enable) {
 		nrf_power_int_enable(mask);
-		irq_enable(DT_NORDIC_NRF_CLOCK_0_IRQ_0);
+		irq_enable(DT_INST_0_NORDIC_NRF_CLOCK_IRQ_0);
 	} else {
 		nrf_power_int_disable(mask);
 	}

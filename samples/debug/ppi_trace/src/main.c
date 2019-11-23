@@ -7,8 +7,8 @@
 #include <zephyr.h>
 #include <debug/ppi_trace.h>
 #include <counter.h>
-#include <nrf_rtc.h>
-#include <nrf_clock.h>
+#include <hal/nrf_rtc.h>
+#include <hal/nrf_clock.h>
 #include <device.h>
 #include <logging/log.h>
 
@@ -30,7 +30,7 @@ static void alarm_callback(struct device *dev, u8_t chan_id, u32_t ticks,
 
 static struct counter_alarm_cfg alarm_cfg = {
 	.callback = alarm_callback,
-	.absolute = true
+	.flags = COUNTER_ALARM_CFG_ABSOLUTE,
 };
 
 extern void bluetooth_enable(void);

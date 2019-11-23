@@ -91,11 +91,11 @@ static int init_adc(void)
 	}
 
 	/* Check if number of elements in LUT is proper */
-	static_assert(CONFIG_DESKTOP_BATTERY_MEAS_MAX_LEVEL
-		      - CONFIG_DESKTOP_BATTERY_MEAS_MIN_LEVEL
-		      == (ARRAY_SIZE(battery_voltage_to_soc) - 1)
-		      * CONFIG_DESKTOP_VOLTAGE_TO_SOC_DELTA,
-		      "Improper number of elements in lookup table");
+	BUILD_ASSERT_MSG(CONFIG_DESKTOP_BATTERY_MEAS_MAX_LEVEL
+			 - CONFIG_DESKTOP_BATTERY_MEAS_MIN_LEVEL
+			 == (ARRAY_SIZE(battery_voltage_to_soc) - 1)
+			 * CONFIG_DESKTOP_VOLTAGE_TO_SOC_DELTA,
+			 "Improper number of elements in lookup table");
 
 	return 0;
 }
@@ -172,15 +172,34 @@ static void battery_lvl_read_fn(struct k_work *work)
 
 	if (!adc_async_read_pending) {
 		static const struct adc_sequence sequence = {
-			.options     = NULL,
-			.channels    = BIT(ADC_CHANNEL_ID),
-			.buffer      = &adc_buffer,
-			.buffer_size = sizeof(adc_buffer),
-			.resolution  = ADC_RESOLUTION,
-			.oversampling = ADC_OVERSAMPLING,
+			.options	= NULL,
+			.channels	= BIT(ADC_CHANNEL_ID),
+			.buffer		= &adc_buffer,
+			.buffer_size	= sizeof(adc_buffer),
+			.resolution	= ADC_RESOLUTION,
+			.oversampling	= ADC_OVERSAMPLING,
+			.calibrate	= false,
+		};
+		static const struct adc_sequence sequence_calibrate = {
+			.options	= NULL,
+			.channels	= BIT(ADC_CHANNEL_ID),
+			.buffer		= &adc_buffer,
+			.buffer_size	= sizeof(adc_buffer),
+			.resolution	= ADC_RESOLUTION,
+			.oversampling	= ADC_OVERSAMPLING,
+			.calibrate	= true,
 		};
 
-		err = adc_read_async(adc_dev, &sequence, &async_sig);
+		static bool calibrated;
+
+		if (likely(calibrated)) {
+			err = adc_read_async(adc_dev, &sequence, &async_sig);
+		} else {
+			err = adc_read_async(adc_dev, &sequence_calibrate,
+					     &async_sig);
+			calibrated = true;
+		}
+
 		if (err) {
 			LOG_WRN("Battery level async read failed");
 		} else {

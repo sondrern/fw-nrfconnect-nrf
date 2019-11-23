@@ -58,19 +58,6 @@ static void disconnected(struct bt_conn *conn, u8_t reason)
 	}
 }
 
-static void __attribute__((unused)) security_changed(struct bt_conn *conn,
-						     bt_security_t level)
-{
-	LOG_INF("Security level was raised to %d", level);
-}
-
-static struct bt_conn_cb conn_callbacks = {
-	.connected    = connected,
-	.disconnected = disconnected,
-	COND_CODE_1(CONFIG_BT_SMP,
-		    (.security_changed = security_changed), ())
-};
-
 static char *log_addr(struct bt_conn *conn)
 {
 	char addr[BT_ADDR_LE_STR_LEN];
@@ -79,6 +66,27 @@ static char *log_addr(struct bt_conn *conn)
 
 	return log_strdup(addr);
 }
+
+static void __attribute__((unused)) security_changed(struct bt_conn *conn,
+						     bt_security_t level,
+						     enum bt_security_err err)
+{
+	char *addr = log_addr(conn);
+
+	if (!err) {
+		LOG_INF("Security changed: %s level %u", addr, level);
+	} else {
+		LOG_INF("Security failed: %s level %u err %d", addr, level,
+			err);
+	}
+}
+
+static struct bt_conn_cb conn_callbacks = {
+	.connected    = connected,
+	.disconnected = disconnected,
+	COND_CODE_1(CONFIG_BT_SMP,
+		    (.security_changed = security_changed), ())
+};
 
 static void auth_passkey_display(struct bt_conn *conn, unsigned int passkey)
 {
@@ -90,10 +98,29 @@ static void auth_cancel(struct bt_conn *conn)
 	LOG_INF("Pairing cancelled: %s", log_addr(conn));
 }
 
+static void pairing_confirm(struct bt_conn *conn)
+{
+	bt_conn_auth_pairing_confirm(conn);
+
+	LOG_INF("Pairing confirmed: %s", log_addr(conn));
+}
+
+static void pairing_complete(struct bt_conn *conn, bool bonded)
+{
+	LOG_INF("Pairing completed: %s, bonded: %d", log_addr(conn), bonded);
+}
+
+static void pairing_failed(struct bt_conn *conn, enum bt_security_err reason)
+{
+	LOG_INF("Pairing failed conn: %s, reason %d", log_addr(conn), reason);
+}
+
 static struct bt_conn_auth_cb conn_auth_callbacks = {
 	.passkey_display = auth_passkey_display,
-	.passkey_entry = NULL,
 	.cancel = auth_cancel,
+	.pairing_confirm = pairing_confirm,
+	.pairing_complete = pairing_complete,
+	.pairing_failed = pairing_failed
 };
 
 static void bt_ready(int err)

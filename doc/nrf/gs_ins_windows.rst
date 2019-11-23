@@ -44,7 +44,7 @@ We recommend installing according to :ref:`zephyr:windows_install_native`.
 Installing the toolchain
 ************************
 
-To be able to cross-compile your applications for Arm targets, you must install  version 7-2018-q2-update of the `GNU Arm Embedded Toolchain`_.
+To be able to cross-compile your applications for Arm targets, you must install  version 8-2019-q3-update of the `GNU Arm Embedded Toolchain`_.
 
 .. important::
    Make sure to install the version that is mentioned above.
@@ -78,34 +78,26 @@ To set up the toolchain, complete the following steps:
 Getting the |NCS| code
 **********************
 
-The |NCS| consists of the following repositories:
-
-* |ncs_repo|
-* |ncs_zephyr_repo|
-* |ncs_mcuboot_repo|
-* |ncs_nrfxlib_repo|
+The |NCS| consists of a set of Git repositories.
 
 Every |NCS| release consists of a combination of these repositories at different revisions.
+The revision of each of those repositories is determined by the current revision of the main (or manifest) repository, `fw-nrfconnect-nrf`_.
 
 .. note::
-   The latest state of development is on the master branch of the fw-nrfconnect-nrf repository.
-   To ensure a usable state, the fw-nrfconnect-nrf repository defines the compatible states of the other repositories.
+   The latest state of development is on the master branch of the `fw-nrfconnect-nrf`_ repository.
+   To ensure a usable state, the `fw-nrfconnect-nrf`_ repository defines the compatible states of the other repositories.
    However, this state is not necessarily tested.
    For a higher degree of quality assurance, check out a tagged release.
 
    Therefore, unless you are familiar with the development process, you should always work with a specific release of the |NCS|.
 
 To manage the combination of repositories and versions, the |NCS| uses :ref:`zephyr:west`.
-The main repository, fw-nrfconnect-nrf, contains a `west manifest file`_ that defines the versions of all other repositories.
-This means that fw-nrfconnect-nrf acts as the manifest repository (see :ref:`Repository structure <zephyr:west-struct>`), while the other repositories are project repositories.
-The revision (in Git terms) of the fw-nrfconnect-nrf repository determines the contents of the manifest file.
-This file in turn defines what versions of the project repositories are checked out.
-This means that the full revision set of all repositories can be uniquely identified by a particular Git revision of the fw-nrfconnect-nrf repository.
+The main repository, `fw-nrfconnect-nrf`_, contains a `west manifest file`_, :file:`west.yml`, that determines the revision of all other repositories.
+This means that fw-nrfconnect-nrf acts as the :ref:`manifest repository <zephyr:west-multi-repo>`, while the other repositories are project repositories.
 
-In this way, you can decide to work with a specific |NCS| release either by initializing a new west installation at a particular tag or by checking out the corresponding tag for a release in an existing installation and then updating your project repositories to the corresponding state with west.
-Alternatively, you can work with the latest state of development by using the master branch of the fw-nrfconnect-nrf repository, updating it with Git regularly and then using west to update the project repositories after that.
+You can find additional information about the repository and development model in the :ref:`development model section <dev-model>`.
 
-See the :ref:`west documentation <zephyr:west>` for detailed information about the tool.
+See the :ref:`west documentation <zephyr:west>` for detailed information about the tool itself.
 
 Installing west
 ===============
@@ -128,7 +120,6 @@ Therefore, remember to regularly check for updates:
 
 Cloning the repositories
 ========================
-
 
 .. tip::
    If you already cloned the |NCS| repositories in Git and want to continue using these clones instead of creating new ones, see `Updating your existing clones to use west`_.
@@ -161,7 +152,18 @@ To clone the repositories, complete the following steps:
 
         west init -m https\://github.com/NordicPlayground/fw-nrfconnect-nrf
 
-   This will clone the manifest repository (``nrf``).
+   * More generally, to check out an arbitrary revision, enter the following command:
+
+     .. parsed-literal::
+        :class: highlight
+
+        west init -m https\://github.com/NordicPlayground/fw-nrfconnect-nrf --mr *NCS_revision*
+
+     .. note::
+        *NCS_revision* can be a branch (eg. ``master``), a tag (for example, ``v1.1.0``), or even a SHA (for example, ``224bee9055d986fe2677149b8cbda0ff10650a6e``). When not specified, it defaults to ``master``.
+
+   This will clone the manifest repository `fw-nrfconnect-nrf`_ into :file:`nrf`.
+
 #. Enter the following command to clone the project repositories::
 
       west update
@@ -174,6 +176,7 @@ Your directory structure now looks like this::
     |___ nrf
     |___ nrfxlib
     |___ zephyr
+    |___ ...
 
 
 Updating the repositories
@@ -183,17 +186,25 @@ If you work with a specific release of the |NCS|, you do not need to update your
 However, you might want to switch to a newer release or check out the latest state of development.
 
 To manage the ``nrf`` repository (the manifest repository), use Git.
+To make sure that you have the latest changes, run ``git fetch origin`` to :ref:`fetch the latest code <dm-wf-update-ncs>` from the `fw-nrfconnect-nrf`_ repository.
 Checking out a branch or tag in the ``nrf`` repository gives you a different version of the manifest file.
 Running ``west update`` will then update the project repositories to the state specified in this manifest file.
+For example, to switch to release v1.1.0 of the |NCS|, enter the following commands in the ``ncs/nrf`` directory::
 
-For example, to switch to release v0.4.0 of the |NCS|, enter the following commands in the ``ncs/nrf`` directory::
+   git fetch origin
+   git checkout v1.1.0
+   west update
 
-   git checkout v0.4.0
+To update to a particular revision (SHA), make sure that you have that particular revision locally before you check it out (by running ``git fetch origin``)::
+
+   git fetch origin
+   git checkout 224bee9055d986fe2677149b8cbda0ff10650a6e
    west update
 
 To switch to the latest state of development, enter the following commands::
 
-   git checkout master
+   git fetch origin
+   git checkout origin/master
    west update
 
 .. note::
@@ -213,6 +224,7 @@ To update your repositories to be managed by west, make sure that they are struc
     |___ nrf
     |___ nrfxlib
     |___ zephyr
+    |___ ...
 
 Then complete the following steps:
 
@@ -253,6 +265,54 @@ To install those, open a |bash| in the ``ncs`` folder and enter the following co
 
 .. add_deps_end
 
+.. _installing_ses_win:
+
+.. installing_ses_start
+
+Installing |SES|
+****************
+
+You must install a special version of |SES| (SES) to be able to open and compile projects in the |NCS|.
+
+|SES| is free of charge for use with Nordic Semiconductor devices.
+
+To install |SES|, complete the following steps:
+
+1. Download the package for your operating system from the following links:
+
+    * `SEGGER Embedded Studio (Nordic Edition) - Windows x86`_
+    * `SEGGER Embedded Studio (Nordic Edition) - Windows x64`_
+    * `SEGGER Embedded Studio (Nordic Edition) - Mac OS x64`_
+    * `SEGGER Embedded Studio (Nordic Edition) - Linux x86`_
+    * `SEGGER Embedded Studio (Nordic Edition) - Linux x64`_
+
+#. Extract the downloaded package in the directory of your choice.
+#. Register and activate a free license.
+   |SES| is free of charge for use with Nordic Semiconductor devices, but you still need to request and activate a license.
+   Complete the following steps:
+
+    a. Run the file :file:`bin/emStudio`.
+       |SES| will open the Dashboard window and inform you about the missing license.
+
+        .. figure:: images/ses_license.PNG
+           :alt: SEGGER Embedded Studio Dashboard notification about missing license
+
+           No commercial-use license detected SES prompt
+
+    #. Click :guilabel:`Activate Your Free License`.
+       A request form appears.
+
+    #. Fill in your information and click :guilabel:`Request License`.
+       The license is sent to you in an email.
+
+    #. After you receive your license key, click :guilabel:`Enter Activation Key` to activate the license.
+
+    #. Copy-paste the license key and click :guilabel:`Install License`.
+       The license activation window will close and SES will open the Project Explorer window.
+
+
+
+.. installing_ses_end
 
 .. _build_environment_win:
 
@@ -261,8 +321,41 @@ To install those, open a |bash| in the ``ncs`` folder and enter the following co
 Setting up the build environment
 ********************************
 
+Before you start :ref:`building and programming a sample application <gs_programming>`, you must set up your build environment.
+
+Setting up the SES environment
+==============================
+
+If you plan to :ref:`build with SEGGER Embedded Studio <gs_programming_ses>`, the first time you import an |NCS| project, SES will prompt you to set the paths to the Zephyr Base directory and the GNU ARM Embedded Toolchain.
+This must be done only once per project.
+
+Complete the following steps to set up the |SES| environment:
+
+1. Run the file :file:`bin/emStudio`.
+
+#. Select :guilabel:`File` -> :guilabel:`Open nRF Connect SDK Project`.
+
+    .. figure:: images/ses_open.png
+       :alt: Open nRF Connect SDK Project menu
+
+       Open nRF Connect SDK Project menu
+
+#. Set the Zephyr Base directory to the full path to ``ncs\zephyr``.
+   The GNU ARM Embedded Toolchain directory is the directory where you installed the toolchain (for example, ``c:\gnuarmemb``).
+
+    .. figure:: images/ses_notset.png
+       :alt: Zephyr Base Not Set prompt
+
+       Zephyr Base Not Set prompt
+
+
+If you want to change these settings later, click :guilabel:`Tools` -> :guilabel:`Options` and select the :guilabel:`nRF Connect` tab (see :ref:`ses_options_figure`).
+
+
+Setting up the command line build environment
+=============================================
+
 If you want to build and program your applications from the command line, you must set up your build environment by defining the required environment variables every time you open a new |bash|.
-If you plan to :ref:`build with SEGGER Embedded Studio <gs_programming>`, you can skip this step.
 
 To define the environment variables, navigate to the ``ncs`` folder and enter the following command: |envfile|
 

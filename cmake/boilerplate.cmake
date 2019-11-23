@@ -27,3 +27,6 @@ endif()
 
 # Add NRF_DIR as a BOARD_ROOT in case the board is in NRF_DIR
 list(APPEND BOARD_ROOT ${NRF_DIR})
+
+# Add NRF_DIR as a DTS_ROOT to include nrf/dts
+list(APPEND DTS_ROOT ${NRF_DIR})

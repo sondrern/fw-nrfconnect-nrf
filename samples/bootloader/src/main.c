@@ -4,101 +4,36 @@
  * SPDX-License-Identifier: LicenseRef-BSD-5-Clause-Nordic
  */
 
-#include "debug.h"
 #include <zephyr/types.h>
+#include <errno.h>
 #include <toolchain.h>
 #include <misc/util.h>
+#include <misc/printk.h>
 #include <nrf.h>
-#include <errno.h>
-#include <generated_dts_board.h>
-#include "bootloader.h"
-#include "bl_crypto.h"
-#include "fw_metadata.h"
-
-#include <fprotect.h>
-
+#include <pm_config.h>
+#include <bl_validation.h>
+#include <bl_crypto.h>
+#include <fw_info.h>
+#include <drivers/fprotect.h>
 #include <provision.h>
+#ifdef CONFIG_UART_NRFX
+#ifdef CONFIG_UART_0_NRF_UART
+#include <hal/nrf_uart.h>
+#else
+#include <hal/nrf_uarte.h>
+#endif
+#endif
 
-void *memcpy32(void *restrict d, const void *restrict s, size_t n)
+static void uninit_used_peripherals(void)
 {
-	size_t len_words = ROUND_UP(n, 4) / 4;
-	for (size_t i = 0; i < len_words; i++) {
-		((u32_t *)d)[i] = ((u32_t *)s)[i];
-	}
-	return d;
-}
-
-static bool verify_firmware(u32_t address)
-{
-	/* Some key data storage backends require word sized reads, hence
-	 * we need to ensure word alignment for 'key_data'
-	 */
-	u32_t key_data[CONFIG_SB_PUBLIC_KEY_HASH_LEN/4];
-	int retval = -EFAULT;
-	int err;
-	const struct fw_firmware_info *fw_info;
-	const struct fw_validation_info *fw_ver_info;
-
-	fw_info = fw_firmware_info_get(address);
-
-	printk("Attempting to boot from address 0x%x.\n\r", address);
-
-	if (!fw_info) {
-		printk("Could not find valid firmware info inside "
-				    "firmware. Aborting boot!\n\r");
-		return false;
-	}
-
-	fw_ver_info = validation_info_find(fw_info, 4);
-
-	if (!fw_ver_info) {
-		printk("Could not find valid firmware validation "
-			  "info trailing firmware. Aborting boot!\n\r");
-		return false;
-	}
-
-	err = bl_crypto_init();
-	if (err) {
-		printk("bl_crypto_init() returned %d. Aborting boot!\n\r", err);
-		return false;
-	}
-
-	u32_t num_public_keys = num_public_keys_read();
-
-	for (u32_t key_data_idx = 0; key_data_idx < num_public_keys;
-			key_data_idx++) {
-		if (public_key_data_read(key_data_idx, &key_data[0],
-				CONFIG_SB_PUBLIC_KEY_HASH_LEN) < 0) {
-			retval = -EFAULT;
-			break;
-		}
-		retval = bl_root_of_trust_verify(fw_ver_info->public_key,
-					      (u8_t *)key_data,
-					      fw_ver_info->signature,
-					      (u8_t *)address,
-					      fw_info->firmware_size);
-		if (retval != -ESIGINV) {
-			break;
-		}
-	}
-
-	if (retval != 0) {
-		printk("Firmware validation failed with error %d. "
-			    "Aborting boot!\n\r",
-			    retval);
-		return false;
-	}
-
-	return true;
-}
-
-void uninit_used_peripherals(void)
-{
-	/* We do not want to uninitialize cryptocell as we want to retain the
-	 * root of trust key loaded inside cryptocell.
-	 */
-#ifdef CONFIG_SB_DEBUG_PORT_UART
-	uart_uninit();
+#ifdef CONFIG_UART_0_NRF_UART
+	nrf_uart_disable(NRF_UART0);
+#elif defined(CONFIG_UART_0_NRF_UARTE)
+	nrf_uarte_disable(NRF_UARTE0);
+#elif defined(CONFIG_UART_1_NRF_UARTE)
+	nrf_uarte_disable(NRF_UARTE1);
+#elif defined(CONFIG_UART_2_NRF_UARTE)
+	nrf_uarte_disable(NRF_UARTE2);
 #endif
 }
 
@@ -109,9 +44,16 @@ extern u32_t _vector_table_pointer;
 #define VTOR SCB->VTOR
 #endif
 
-static void boot_from(u32_t *address)
+static void boot_from(const struct fw_info *fw_info)
 {
-	if (!verify_firmware((u32_t)address)) {
+	u32_t *vector_table = (u32_t *)fw_info->firmware_address;
+
+	printk("Attempting to boot from address 0x%x.\n\r",
+		fw_info->firmware_address);
+
+	if (!bl_validate_firmware_local(fw_info->firmware_address,
+					fw_info)) {
+		printk("Failed to validate!\n\r");
 		return;
 	}
 
@@ -133,6 +75,8 @@ static void boot_from(u32_t *address)
 		nvic->ICPR[i] = 0xFFFFFFFF;
 	}
 
+	printk("Booting (0x%x).\r\n", fw_info->firmware_address);
+
 	uninit_used_peripherals();
 
 	SysTick->CTRL = 0;
@@ -151,46 +95,44 @@ static void boot_from(u32_t *address)
 	}
 
 	__DSB(); /* Force Memory Write before continuing */
-	__ISB(); /* Flush and refill pipeline with updated premissions */
+	__ISB(); /* Flush and refill pipeline with updated permissions */
 
-	VTOR = (u32_t)address;
+	VTOR = fw_info->firmware_address;
 
-	fw_abi_provide((u32_t)address);
+	fw_info_abi_provide(fw_info);
 
 	/* Set MSP to the new address and clear any information from PSP */
-	__set_MSP(address[0]);
+	__set_MSP(vector_table[0]);
 	__set_PSP(0);
 
 	/* Call reset handler. */
-	((void (*)(void))address[1])();
+	((void (*)(void))vector_table[1])();
 	CODE_UNREACHABLE;
 }
 
-void z_cstart(void) __attribute__((alias("main")));
 void main(void)
 {
-#if defined(CONFIG_SB_DEBUG_PORT_SEGGER_RTT)
-	SEGGER_RTT_Init();
-#elif defined(CONFIG_SB_DEBUG_PORT_UART)
-	uart_init();
-#endif /* CONFIG_SB_RTT */
-	int err;
-	err = fprotect_area(DT_FLASH_AREA_SECURE_BOOT_OFFSET,
-			DT_FLASH_AREA_SECURE_BOOT_SIZE);
+	int err = fprotect_area(PM_B0_ADDRESS, PM_B0_SIZE);
+
 	if (err) {
 		printk("Protect B0 flash failed, cancel startup.\n\r");
 		return;
 	}
 
-#ifndef CONFIG_SOC_NRF9160
-	err = fprotect_area(DT_FLASH_AREA_PROVISION_OFFSET,
-			DT_FLASH_AREA_PROVISION_SIZE);
-	if (err) {
-		printk("Protect provision data failed, cancel startup.\n\r");
-		return;
-	}
-#endif /* CONFIG_SOC_NRF9160 */
+	u32_t s0_addr = s0_address_read();
+	u32_t s1_addr = s1_address_read();
+	const struct fw_info *s0_info = fw_info_find(s0_addr);
+	const struct fw_info *s1_info = fw_info_find(s1_addr);
 
-	boot_from((u32_t *)s0_address_read());
-	CODE_UNREACHABLE;
+	if (!s1_info || (s0_info->firmware_version >=
+			 s1_info->firmware_version)) {
+		boot_from(s0_info);
+		boot_from(s1_info);
+	} else {
+		boot_from(s1_info);
+		boot_from(s0_info);
+	}
+
+	printk("No bootable image found. Aborting boot.\n\r");
+	return;
 }

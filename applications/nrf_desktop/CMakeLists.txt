@@ -7,10 +7,12 @@
 cmake_minimum_required(VERSION 3.8.2)
 
 set(NRF_SUPPORTED_BOARDS
+  nrf52810_pca20045
   nrf52840_pca20041
   nrf52840_pca10056
   nrf52840_pca10059
   nrf52_pca20037
+  nrf52_pca20044
   )
 
 set(NRF_SUPPORTED_BUILD_TYPES
@@ -65,7 +67,6 @@ zephyr_library_include_directories(
 add_subdirectory(src/events)
 add_subdirectory(src/hw_interface)
 add_subdirectory(src/modules)
-add_subdirectory(src/services)
 add_subdirectory(src/util)
 
 if(CONFIG_BOOTLOADER_MCUBOOT)

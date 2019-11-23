@@ -28,7 +28,6 @@
 
 LOG_MODULE_REGISTER(bt_gatt_lbs, CONFIG_BT_GATT_LBS_LOG_LEVEL);
 
-static struct bt_gatt_ccc_cfg lbslc_ccc_cfg[BT_GATT_CCC_MAX];
 static bool                   notify_enabled;
 static bool                   button_state;
 static struct bt_gatt_lbs_cb       lbs_cb;
@@ -79,8 +78,8 @@ static ssize_t read_button(struct bt_conn *conn,
 #endif
 
 /* LED Button Service Declaration */
-static struct bt_gatt_attr attrs[] = {
-	BT_GATT_PRIMARY_SERVICE(BT_UUID_LBS),
+BT_GATT_SERVICE_DEFINE(lbs_svc,
+BT_GATT_PRIMARY_SERVICE(BT_UUID_LBS),
 #ifdef CONFIG_BT_GATT_LBS_POLL_BUTTON
 	BT_GATT_CHARACTERISTIC(BT_UUID_LBS_BUTTON,
 			       BT_GATT_CHRC_READ | BT_GATT_CHRC_NOTIFY,
@@ -91,14 +90,13 @@ static struct bt_gatt_attr attrs[] = {
 			       BT_GATT_CHRC_READ | BT_GATT_CHRC_NOTIFY,
 			       BT_GATT_PERM_READ, NULL, NULL, NULL),
 #endif
-	BT_GATT_CCC(lbslc_ccc_cfg, lbslc_ccc_cfg_changed),
+	BT_GATT_CCC(lbslc_ccc_cfg_changed,
+		    BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),
 	BT_GATT_CHARACTERISTIC(BT_UUID_LBS_LED,
 			       BT_GATT_CHRC_WRITE,
 			       BT_GATT_PERM_WRITE,
 			       NULL, write_led, NULL),
-};
-
-static struct bt_gatt_service lbs_svc = BT_GATT_SERVICE(attrs);
+);
 
 int bt_gatt_lbs_init(struct bt_gatt_lbs_cb *callbacks)
 {
@@ -107,7 +105,7 @@ int bt_gatt_lbs_init(struct bt_gatt_lbs_cb *callbacks)
 		lbs_cb.button_cb = callbacks->button_cb;
 	}
 
-	return bt_gatt_service_register(&lbs_svc);
+	return 0;
 }
 
 int bt_gatt_lbs_send_button_state(bool button_state)
@@ -116,7 +114,7 @@ int bt_gatt_lbs_send_button_state(bool button_state)
 		return -EACCES;
 	}
 
-	return bt_gatt_notify(NULL, &attrs[2],
+	return bt_gatt_notify(NULL, &lbs_svc.attrs[2],
 			      &button_state,
 			      sizeof(button_state));
 }

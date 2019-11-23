@@ -99,20 +99,26 @@ Set :option:`CONFIG_PROFILER_NORDIC` to enable this backend.
 
 To use the tools, run the scripts on the command line:
 
-* ``python3 data_collector.py 5 a.csv a.json``
+* ``python3 data_collector.py 5 test1``
 
   Connects to the device via RTT, receives profiling data, and saves it to files.
-  As command line arguments, provide the time for collecting data (in seconds) and the files where to save the data.
+  As command line arguments, provide the time for collecting data (in seconds) and a dataset name.
 
-* ``python3 plot_from_files.py a.csv a.json``
+* ``python3 plot_from_files.py test1``
 
-  Plots events from the files that are provided as command line arguments.
+  Plots events from the dataset that is provided as the command line argument.
 
-* ``python3 real_time_plot.py a.csv a.json``
+* ``python3 real_time_plot.py test1``
 
   Connects to the device via RTT, plots data in real time, and saves the data.
-  As command line arguments, provide the files where to save the data.
+  As command line arguments, provide a dataset name.
 
+* ``python3 merge_data.py test_p sync_event_p test_c sync_event_c test_merged``
+
+  Combines data from test_p and test_c datasets into one dataset (test_merged).
+  Provides clock drift compensation based on synchronization events: sync_event_p and sync_event_c.
+  This enables you to observe times between events for the two connected devices.
+  As command line arguments, provide names of events used for synchronization for a Peripheral (sync_event_p) and a Central (sync_event_c), as well as names of datasets for: the Peripheral (test_p), the Central (test_c), and the merge result (test_merged).
 
 Visualization
 -------------

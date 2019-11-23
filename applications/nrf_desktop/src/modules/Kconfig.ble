@@ -15,6 +15,14 @@ source "subsys/logging/Kconfig.template.log_config"
 
 comment "BLE Bond"
 
+config DESKTOP_BLE_USE_DEFAULT_ID
+	bool "Use default Bluetooth local identity"
+	depends on BT_PERIPHERAL
+	help
+	  Bluetooth default local identity is used as ID 0. This identity
+	  cannot be reset. After bond for the default identity is removed,
+	  it is not longer used.
+
 config DESKTOP_BLE_PEER_CONTROL
 	bool "Enable interaction with peer configuration"
 	depends on !DESKTOP_BUTTONS_NONE
@@ -38,6 +46,12 @@ config DESKTOP_BLE_PEER_ERASE
 	bool "Enable peer erase"
 	help
 	  Long click to start erase. Double click to confirm.
+
+config DESKTOP_BLE_PEER_ERASE_ON_START
+	bool "Enable peer erase (on system start)"
+	depends on BT_PERIPHERAL
+	help
+	  Hold dedicated button during system start to erase peer.
 endif
 
 if !DESKTOP_BLE_PEER_CONTROL
@@ -47,6 +61,21 @@ config DESKTOP_BLE_PEER_CONTROL_BUTTON
 	default 0x0000
 
 endif
+
+config DESKTOP_BLE_DONGLE_PEER_ENABLE
+	bool "Enable dongle peer"
+	help
+	  Enable additional peer to connect with dongle.
+
+config DESKTOP_BLE_DONGLE_PEER_SELECTOR_ID
+	int "Dongle peer selector ID"
+	range 0 255
+	default 0
+
+config DESKTOP_BLE_DONGLE_PEER_SELECTOR_POS
+	int "Dongle peer selector position"
+	range 0 255
+	default 0
 
 module = DESKTOP_BLE_BOND
 module-str = BLE bonds
@@ -60,6 +89,11 @@ config DESKTOP_BLE_ADVERTISING_ENABLE
 	depends on BT_PERIPHERAL
 	help
 	  Make device discoverable via BLE.
+
+config DESKTOP_BLE_SHORT_NAME
+	string "Short device name used for advertising"
+	default ""
+	depends on DESKTOP_BLE_ADVERTISING_ENABLE
 
 config DESKTOP_BLE_DIRECT_ADV_AVAILABLE
 	bool
@@ -123,6 +157,22 @@ config DESKTOP_BLE_SCANNING_ENABLE
 	help
 	  Enable device to scan for peripheral devices.
 
+config DESKTOP_BLE_SCAN_START_TIMEOUT_S
+	int "Scan start timeout [s]"
+	default 5
+	depends on DESKTOP_BLE_SCANNING_ENABLE
+	help
+	  After disabled, scanning is re-enabled after defined time of connected
+	  peripherals inactivity (scanning has negative impact on user
+	  experience - e.g. may cause mouse pointer lags).
+
+config DESKTOP_BLE_SCAN_DURATION_S
+	int "Scan duration [s]"
+	default 5
+	depends on DESKTOP_BLE_SCANNING_ENABLE
+	help
+	  After this time scan is disabled if any peripheral is connected.
+
 if DESKTOP_BLE_SCANNING_ENABLE
 
 module = DESKTOP_BLE_SCANNING
@@ -131,11 +181,38 @@ source "subsys/logging/Kconfig.template.log_config"
 
 endif
 
-config DESKTOP_BLE_SHORT_NAME
-	string "Short device name used for advertising and as a scan filter"
-	default ""
+
+comment "BLE Discovery"
+
+config DESKTOP_BLE_DISCOVERY_ENABLE
+	bool "Enable BLE discovery"
+	depends on DESKTOP_BLE_SCANNING_ENABLE
 	help
-	  Name of the device to which central shall connect to. Used also to
-	  determine shortened device name for advertising.
+	  Enable device to read Device Information Service and discover HIDS.
+
+if DESKTOP_BLE_DISCOVERY_ENABLE
+
+module = DESKTOP_BLE_DISCOVERY
+module-str = BLE discovery
+source "subsys/logging/Kconfig.template.log_config"
+
+endif
+
+comment "BLE Latency"
+
+if BT_PERIPHERAL
+
+config DESKTOP_BLE_SECURITY_FAIL_TIMEOUT_S
+	int "Security fail timeout [s]"
+	default 10
+	help
+	  After this time peripheral device disconnects if security is not
+	  established.
+
+module = DESKTOP_BLE_LATENCY
+module-str = BLE latency
+source "subsys/logging/Kconfig.template.log_config"
+
+endif
 
 endmenu

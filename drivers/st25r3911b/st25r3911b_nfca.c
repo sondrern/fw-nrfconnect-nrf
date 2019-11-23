@@ -592,8 +592,6 @@ static int tx_fifo_water(void)
 	bytes_to_send = MIN(nfca.transfer.tx_buf->len - nfca.transfer.written_byte,
 			    nfca.water_lvl.tx);
 
-	bytes_to_send = nfca.transfer.tx_buf->len - nfca.transfer.written_byte;
-
 	buff = nfca.transfer.tx_buf->data + nfca.transfer.written_byte;
 
 	nfca.transfer.written_byte += bytes_to_send;
@@ -711,6 +709,10 @@ static int irq_process(void)
 
 		if (atomic_get(&nfca.state.tag) == STATE_SLEEP) {
 			state_set(STATE_IDLE);
+
+			if (nfca.cb->tag_sleep) {
+				nfca.cb->tag_sleep();
+			}
 		}
 	}
 

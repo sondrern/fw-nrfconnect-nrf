@@ -8,8 +8,14 @@ target_sources(app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ble_state.c)
 
 target_sources(app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ble_bond.c)
 
+target_sources_ifdef(CONFIG_BT_PERIPHERAL
+		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ble_latency.c)
+
 target_sources_ifdef(CONFIG_DESKTOP_BLE_ADVERTISING_ENABLE
 		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ble_adv.c)
+
+target_sources_ifdef(CONFIG_DESKTOP_BLE_DISCOVERY_ENABLE
+		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ble_discovery.c)
 
 target_sources_ifdef(CONFIG_DESKTOP_BLE_SCANNING_ENABLE
 		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ble_scan.c)
@@ -29,6 +35,9 @@ target_sources_ifdef(CONFIG_DESKTOP_USB_ENABLE
 target_sources_ifdef(CONFIG_DESKTOP_LED_ENABLE
 		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/led_state.c)
 
+target_sources_ifdef(CONFIG_DESKTOP_LED_STREAM_ENABLE
+		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/led_stream.c)
+
 target_sources_ifdef(CONFIG_DESKTOP_POWER_MANAGER_ENABLE
 		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/power_manager.c)
 
@@ -40,3 +49,12 @@ target_sources_ifdef(CONFIG_DESKTOP_CONFIG_CHANNEL_DFU_ENABLE
 
 target_sources_ifdef(CONFIG_DESKTOP_FN_KEYS_ENABLE
 		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/fn_keys.c)
+
+target_sources_ifdef(CONFIG_DESKTOP_WATCHDOG_ENABLE
+		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/watchdog.c)
+
+target_sources_ifdef(CONFIG_DESKTOP_BAS_ENABLE
+		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/bas.c)
+
+target_sources_ifdef(CONFIG_DESKTOP_HIDS_ENABLE
+		     app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/hids.c)

@@ -34,6 +34,14 @@ config DESKTOP_INIT_LOG_BUTTON_EVENT
 	bool "Button event"
 	default y
 
+config DESKTOP_INIT_LOG_CLICK_EVENT
+	bool "Click event"
+	default y
+
+config DESKTOP_INIT_LOG_SELECTOR_EVENT
+	bool "Selector event"
+	default y
+
 config DESKTOP_INIT_LOG_CONFIG_EVENT
 	bool "Config event"
 	default y
@@ -44,6 +52,10 @@ config DESKTOP_INIT_LOG_HID_KEYBOARD_EVENT
 
 config DESKTOP_INIT_LOG_HID_MOUSE_EVENT
 	bool "HID mouse event"
+	default y
+
+config DESKTOP_INIT_LOG_HID_CONSUMER_CTRL_EVENT
+	bool "HID consumer control event"
 	default y
 
 config DESKTOP_INIT_LOG_HID_SUBSCRIBER_EVENT
@@ -60,6 +72,10 @@ config DESKTOP_INIT_LOG_HID_SUBSCRIPTION_EVENT
 
 config DESKTOP_INIT_LOG_LED_EVENT
 	bool "LED event"
+	default y
+
+config DESKTOP_INIT_LOG_LED_READY_EVENT
+	bool "LED ready event"
 	default y
 
 config DESKTOP_INIT_LOG_MODULE_STATE_EVENT

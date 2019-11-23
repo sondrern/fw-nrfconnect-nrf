@@ -71,11 +71,8 @@ static void scan_connecting(struct bt_scan_device_info *device_info,
 	default_conn = bt_conn_ref(conn);
 }
 
-static struct bt_scan_cb scan_cb = {
-	.filter_match = scan_filter_match,
-	.connecting_error = scan_connecting_error,
-	.connecting = scan_connecting
-};
+BT_SCAN_CB_INIT(scan_cb, scan_filter_match, NULL,
+		scan_connecting_error, scan_connecting);
 
 static void discovery_completed_cb(struct bt_gatt_dm *dm,
 				   void *context)
@@ -139,7 +136,7 @@ static void connected(struct bt_conn *conn, u8_t conn_err)
 
 	printk("Connected: %s\n", addr);
 
-	if (bt_conn_security(conn, BT_SECURITY_MEDIUM)) {
+	if (bt_conn_set_security(conn, BT_SECURITY_L2)) {
 		printk("Failed to set security\n");
 	}
 
@@ -186,9 +183,25 @@ static void disconnected(struct bt_conn *conn, u8_t reason)
 	}
 }
 
+static void security_changed(struct bt_conn *conn, bt_security_t level,
+			     enum bt_security_err err)
+{
+	char addr[BT_ADDR_LE_STR_LEN];
+
+	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+
+	if (!err) {
+		printk("Security changed: %s level %u\n", addr, level);
+	} else {
+		printk("Security failed: %s level %u err %d\n", addr, level,
+			err);
+	}
+}
+
 static struct bt_conn_cb conn_callbacks = {
 	.connected = connected,
 	.disconnected = disconnected,
+	.security_changed = security_changed
 };
 
 static void scan_init(void)

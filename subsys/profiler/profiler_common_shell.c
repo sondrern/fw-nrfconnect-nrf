@@ -16,9 +16,9 @@ static int display_registered_events(const struct shell *shell, size_t argc,
 				char **argv)
 {
 	/* Check if flags for enabling/disabling custom event fit on u32_t */
-	static_assert(CONFIG_MAX_NUMBER_OF_CUSTOM_EVENTS <=
-		      sizeof(profiler_enabled_events) * 8,
-		      "Max 32 profiler events may be used");
+	BUILD_ASSERT_MSG(CONFIG_MAX_NUMBER_OF_CUSTOM_EVENTS <=
+			 sizeof(profiler_enabled_events) * 8,
+			 "Max 32 profiler events may be used");
 	shell_fprintf(shell, SHELL_NORMAL, "EVENTS REGISTERED IN PROFILER:\n");
 	for (size_t i = 0; i < profiler_num_events; i++) {
 		const char *event_name = profiler_get_event_descr(i);
@@ -106,9 +106,7 @@ static int disable_event_profiling(const struct shell *shell, size_t argc,
 	return 0;
 }
 
-
-SHELL_CREATE_STATIC_SUBCMD_SET(sub_profiler)
-{
+SHELL_STATIC_SUBCMD_SET_CREATE(sub_profiler,
 	SHELL_CMD_ARG(list, NULL, "Display list of events",
 			display_registered_events, 0, 0),
 	SHELL_CMD_ARG(enable, NULL, "Enable profiling of event with given ID",
@@ -118,6 +116,5 @@ SHELL_CREATE_STATIC_SUBCMD_SET(sub_profiler)
 			disable_event_profiling, 1,
 			sizeof(profiler_enabled_events) * 8),
 	SHELL_SUBCMD_SET_END
-};
-
+);
 SHELL_CMD_REGISTER(profiler, &sub_profiler, "Profiler commands", NULL);

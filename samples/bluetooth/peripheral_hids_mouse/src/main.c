@@ -23,7 +23,7 @@
 #include <bluetooth/uuid.h>
 #include <bluetooth/gatt.h>
 
-#include <gatt/bas.h>
+#include <bluetooth/services/bas.h>
 #include <bluetooth/services/hids.h>
 #include <bluetooth/services/dis.h>
 #include <dk_buttons_and_leds.h>
@@ -68,6 +68,10 @@
 /* Key used to move cursor down */
 #define KEY_DOWN_MASK   DK_BTN4_MSK
 
+/* Key used to accept or reject passkey value */
+#define KEY_PAIRING_ACCEPT DK_BTN1_MSK
+#define KEY_PAIRING_REJECT DK_BTN2_MSK
+
 /* HIDS instance. */
 BT_GATT_HIDS_DEF(hids_obj,
 		 INPUT_REP_BUTTONS_LEN,
@@ -85,6 +89,14 @@ K_MSGQ_DEFINE(hids_queue,
 	      sizeof(struct mouse_pos),
 	      HIDS_QUEUE_SIZE,
 	      4);
+
+#if CONFIG_BT_DIRECTED_ADVERTISING
+/* Bonded address queue. */
+K_MSGQ_DEFINE(bonds_queue,
+	      sizeof(bt_addr_le_t),
+	      CONFIG_BT_MAX_PAIRED,
+	      4);
+#endif
 
 static const struct bt_data ad[] = {
 	BT_DATA_BYTES(BT_DATA_GAP_APPEARANCE,
@@ -105,18 +117,143 @@ static struct conn_mode {
 	bool in_boot_mode;
 } conn_mode[CONFIG_BT_GATT_HIDS_MAX_CLIENT_COUNT];
 
+static struct k_work pairing_work;
+struct pairing_data_mitm {
+	struct bt_conn *conn;
+	unsigned int passkey;
+};
+
+K_MSGQ_DEFINE(mitm_queue,
+	      sizeof(struct pairing_data_mitm),
+	      CONFIG_BT_GATT_HIDS_MAX_CLIENT_COUNT,
+	      4);
+
+#if CONFIG_BT_DIRECTED_ADVERTISING
+static void bond_find(const struct bt_bond_info *info, void *user_data)
+{
+	int err;
+
+	/* Filter already connected peers. */
+	for (size_t i = 0; i < CONFIG_BT_GATT_HIDS_MAX_CLIENT_COUNT; i++) {
+		if (conn_mode[i].conn) {
+			if (!bt_addr_le_cmp(&info->addr,
+				    bt_conn_get_dst(conn_mode[i].conn))) {
+				return;
+			}
+		}
+	}
+
+	err = k_msgq_put(&bonds_queue, (void *) &info->addr, K_NO_WAIT);
+	if (err) {
+		printk("No space in the queue for the bond.\n");
+	}
+}
+#endif
+
+
+static void advertising_continue(void)
+{
+	struct bt_le_adv_param adv_param;
+
+#if CONFIG_BT_DIRECTED_ADVERTISING
+	bt_addr_le_t addr;
+
+	if (!k_msgq_get(&bonds_queue, &addr, K_NO_WAIT)) {
+		char addr_buf[BT_ADDR_LE_STR_LEN];
+		struct bt_conn *conn;
+
+		adv_param = *BT_LE_ADV_CONN_DIR;
+		conn = bt_conn_create_slave_le(&addr, &adv_param);
+		if (!conn) {
+			printk("Directed advertising failed to start\n");
+			return;
+		}
+		bt_conn_unref(conn);
+
+		bt_addr_le_to_str(&addr, addr_buf, BT_ADDR_LE_STR_LEN);
+		printk("Direct advertising to %s started\n", addr_buf);
+	} else
+#endif
+	{
+		int err;
+
+		adv_param = *BT_LE_ADV_CONN;
+		adv_param.options |= BT_LE_ADV_OPT_ONE_TIME;
+		err = bt_le_adv_start(&adv_param, ad, ARRAY_SIZE(ad),
+				  sd, ARRAY_SIZE(sd));
+		if (err) {
+			printk("Advertising failed to start (err %d)\n", err);
+			return;
+		}
+
+		printk("Regular advertising started\n");
+	}
+}
+
 
 static void advertising_start(void)
 {
-	int err = bt_le_adv_start(BT_LE_ADV_CONN, ad, ARRAY_SIZE(ad),
-				  sd, ARRAY_SIZE(sd));
+	int err;
 
+	/* Clear the application start for advertising restart. */
+	err = bt_le_adv_stop();
 	if (err) {
-		printk("Advertising failed to start (err %d)\n", err);
+		printk("Failed to stop advertising (err %d)\n", err);
+	}
+
+#if CONFIG_BT_DIRECTED_ADVERTISING
+	k_msgq_purge(&bonds_queue);
+	bt_foreach_bond(BT_ID_DEFAULT, bond_find, NULL);
+#endif
+
+	advertising_continue();
+}
+
+
+static void pairing_process(struct k_work *work)
+{
+	int err;
+	struct pairing_data_mitm pairing_data;
+
+	char addr[BT_ADDR_LE_STR_LEN];
+
+	err = k_msgq_peek(&mitm_queue, &pairing_data);
+	if (err) {
 		return;
 	}
 
-	printk("Advertising successfully started\n");
+	bt_addr_le_to_str(bt_conn_get_dst(pairing_data.conn),
+			  addr, sizeof(addr));
+
+	printk("Passkey for %s: %06u\n", addr, pairing_data.passkey);
+	printk("Press Button 1 to confirm, Button 2 to reject.\n");
+}
+
+
+static void insert_conn_object(struct bt_conn *conn)
+{
+	for (size_t i = 0; i < CONFIG_BT_GATT_HIDS_MAX_CLIENT_COUNT; i++) {
+		if (!conn_mode[i].conn) {
+			conn_mode[i].conn = conn;
+			conn_mode[i].in_boot_mode = false;
+
+			return;
+		}
+	}
+
+	printk("Connection object could not be inserted %p\n", conn);
+}
+
+
+static bool is_conn_slot_free(void)
+{
+	for (size_t i = 0; i < CONFIG_BT_GATT_HIDS_MAX_CLIENT_COUNT; i++) {
+		if (!conn_mode[i].conn) {
+			return true;
+		}
+	}
+
+	return false;
 }
 
 
@@ -127,7 +264,12 @@ static void connected(struct bt_conn *conn, u8_t err)
 	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 
 	if (err) {
-		printk("Failed to connect to %s (%u)\n", addr, err);
+		if (err == BT_HCI_ERR_ADV_TIMEOUT) {
+			printk("Direct advertising to %s timed out\n", addr);
+			advertising_continue();
+		} else {
+			printk("Failed to connect to %s (%u)\n", addr, err);
+		}
 		return;
 	}
 
@@ -140,12 +282,10 @@ static void connected(struct bt_conn *conn, u8_t err)
 		return;
 	}
 
-	for (size_t i = 0; i < CONFIG_BT_GATT_HIDS_MAX_CLIENT_COUNT; i++) {
-		if (!conn_mode[i].conn) {
-			conn_mode[i].conn = conn;
-			conn_mode[i].in_boot_mode = false;
-			return;
-		}
+	insert_conn_object(conn);
+
+	if (is_conn_slot_free()) {
+		advertising_start();
 	}
 }
 
@@ -172,17 +312,25 @@ static void disconnected(struct bt_conn *conn, u8_t reason)
 			break;
 		}
 	}
+
+	advertising_start();
 }
 
 
 #ifdef CONFIG_BT_GATT_HIDS_SECURITY_ENABLED
-static void security_changed(struct bt_conn *conn, bt_security_t level)
+static void security_changed(struct bt_conn *conn, bt_security_t level,
+			     enum bt_security_err err)
 {
 	char addr[BT_ADDR_LE_STR_LEN];
 
 	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 
-	printk("Security changed: %s level %u\n", addr, level);
+	if (!err) {
+		printk("Security changed: %s level %u\n", addr, level);
+	} else {
+		printk("Security failed: %s level %u err %d\n", addr, level,
+			err);
+	}
 }
 #endif
 
@@ -380,8 +528,8 @@ static void mouse_movement_send(s16_t x_delta, s16_t y_delta)
 			sys_put_le16(y, y_buff);
 
 			/* Encode report. */
-			static_assert(sizeof(buffer) == 3,
-					"Only 2 axis, 12-bit each, are supported");
+			BUILD_ASSERT_MSG(sizeof(buffer) == 3,
+					 "Only 2 axis, 12-bit each, are supported");
 
 			buffer[0] = x_buff[0];
 			buffer[1] = (y_buff[0] << 4) | (x_buff[1] & 0x0f);
@@ -416,10 +564,10 @@ static void bt_ready(int err)
 	printk("Bluetooth initialized\n");
 
 	/* DIS initialized at system boot with SYS_INIT macro. */
-	bas_init();
 	hid_init();
 
 	k_delayed_work_init(&hids_work, mouse_handler);
+	k_work_init(&pairing_work, pairing_process);
 
 	if (IS_ENABLED(CONFIG_SETTINGS)) {
 		settings_load();
@@ -440,6 +588,32 @@ static void auth_passkey_display(struct bt_conn *conn, unsigned int passkey)
 }
 
 
+static void auth_passkey_confirm(struct bt_conn *conn, unsigned int passkey)
+{
+	int err;
+
+	struct pairing_data_mitm pairing_data;
+
+	pairing_data.conn    = bt_conn_ref(conn);
+	pairing_data.passkey = passkey;
+
+	err = k_msgq_put(&mitm_queue, &pairing_data, K_NO_WAIT);
+	if (err) {
+		printk("Pairing queue is full. Purge previous data.\n");
+	}
+
+	/* In the case of multiple pairing requests, trigger
+	 * pairing confirmation which needed user interaction only
+	 * once to avoid display information about all devices at
+	 * the same time. Passkey confirmation for next devices will
+	 * be proccess from queue after handling the earlier ones.
+	 */
+	if (k_msgq_num_used_get(&mitm_queue) == 1) {
+		k_work_submit(&pairing_work);
+	}
+}
+
+
 static void auth_cancel(struct bt_conn *conn)
 {
 	char addr[BT_ADDR_LE_STR_LEN];
@@ -450,22 +624,76 @@ static void auth_cancel(struct bt_conn *conn)
 }
 
 
-static void auth_done(struct bt_conn *conn)
+static void pairing_confirm(struct bt_conn *conn)
 {
-	printk("%s()\n", __func__);
+	char addr[BT_ADDR_LE_STR_LEN];
+
+	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+
 	bt_conn_auth_pairing_confirm(conn);
+
+	printk("Pairing confirmed: %s\n", addr);
+}
+
+
+static void pairing_complete(struct bt_conn *conn, bool bonded)
+{
+	char addr[BT_ADDR_LE_STR_LEN];
+
+	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+
+	printk("Pairing completed: %s, bonded: %d\n", addr, bonded);
+}
+
+
+static void pairing_failed(struct bt_conn *conn, enum bt_security_err reason)
+{
+	char addr[BT_ADDR_LE_STR_LEN];
+
+	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+
+	printk("Pairing failed conn: %s, reason %d\n", addr, reason);
 }
 
 
 static struct bt_conn_auth_cb conn_auth_callbacks = {
 	.passkey_display = auth_passkey_display,
-	.passkey_entry = NULL,
+	.passkey_confirm = auth_passkey_confirm,
 	.cancel = auth_cancel,
-	.pairing_confirm = auth_done,
+	.pairing_confirm = pairing_confirm,
+	.pairing_complete = pairing_complete,
+	.pairing_failed = pairing_failed
 };
 #else
 static struct bt_conn_auth_cb conn_auth_callbacks;
 #endif
+
+
+static void num_comp_reply(bool accept)
+{
+	struct pairing_data_mitm pairing_data;
+	struct bt_conn *conn;
+
+	if (k_msgq_get(&mitm_queue, &pairing_data, K_NO_WAIT) != 0) {
+		return;
+	}
+
+	conn = pairing_data.conn;
+
+	if (accept) {
+		bt_conn_auth_passkey_confirm(conn);
+		printk("Numeric Match, conn %p\n", conn);
+	} else {
+		bt_conn_auth_cancel(conn);
+		printk("Numeric Reject, conn %p\n", conn);
+	}
+
+	bt_conn_unref(pairing_data.conn);
+
+	if (k_msgq_num_used_get(&mitm_queue)) {
+		k_work_submit(&pairing_work);
+	}
+}
 
 
 void button_changed(u32_t button_state, u32_t has_changed)
@@ -475,6 +703,20 @@ void button_changed(u32_t button_state, u32_t has_changed)
 	u32_t buttons = button_state & has_changed;
 
 	memset(&pos, 0, sizeof(struct mouse_pos));
+
+	if (k_msgq_num_used_get(&mitm_queue)) {
+		if (buttons & KEY_PAIRING_ACCEPT) {
+			num_comp_reply(true);
+
+			return;
+		}
+
+		if (buttons & KEY_PAIRING_REJECT) {
+			num_comp_reply(false);
+
+			return;
+		}
+	}
 
 	if (buttons & KEY_LEFT_MASK) {
 		pos.x_val -= MOVEMENT_SPEED;
@@ -520,6 +762,20 @@ void configure_buttons(void)
 	if (err) {
 		printk("Cannot init buttons (err: %d)\n", err);
 	}
+}
+
+
+static void bas_notify(void)
+{
+	u8_t battery_level = bt_gatt_bas_get_battery_level();
+
+	battery_level--;
+
+	if (!battery_level) {
+		battery_level = 100U;
+	}
+
+	bt_gatt_bas_set_battery_level(battery_level);
 }
 
 

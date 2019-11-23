@@ -36,19 +36,6 @@ LOG_MODULE_REGISTER(MODULE, CONFIG_DESKTOP_BLE_ADV_LOG_LEVEL);
 #define MAX_KEY_LEN 30
 #define PEER_IS_RPA_STORAGE_NAME "peer_is_rpa_"
 
-static const struct bt_le_adv_param adv_param_fast = {
-	.options = BT_LE_ADV_OPT_CONNECTABLE | BT_LE_ADV_OPT_ONE_TIME |
-		   BT_LE_ADV_OPT_USE_NAME,
-	.interval_min = BT_GAP_ADV_FAST_INT_MIN_1,
-	.interval_max = BT_GAP_ADV_FAST_INT_MAX_1,
-};
-
-static const struct bt_le_adv_param adv_param_normal = {
-	.options = BT_LE_ADV_OPT_CONNECTABLE | BT_LE_ADV_OPT_ONE_TIME |
-		   BT_LE_ADV_OPT_USE_NAME,
-	.interval_min = BT_GAP_ADV_FAST_INT_MIN_2,
-	.interval_max = BT_GAP_ADV_FAST_INT_MAX_2,
-};
 
 static const struct bt_data ad[] = {
 	BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
@@ -172,15 +159,40 @@ static int ble_adv_start_directed(const bt_addr_le_t *addr, bool fast_adv)
 	return 0;
 }
 
-static int ble_adv_start_undirected(bool fast_adv, bool swift_pair)
+static int ble_adv_start_undirected(const bt_addr_le_t *bond_addr,
+				    bool fast_adv, bool swift_pair)
 {
-	struct bt_le_adv_param adv_param;
+	struct bt_le_adv_param adv_param = {
+		.options = BT_LE_ADV_OPT_CONNECTABLE | BT_LE_ADV_OPT_ONE_TIME |
+			   BT_LE_ADV_OPT_USE_NAME,
+	};
 
 	LOG_INF("Use %s advertising", (fast_adv)?("fast"):("slow"));
 	if (fast_adv) {
-		adv_param = adv_param_fast;
+		adv_param.interval_min = BT_GAP_ADV_FAST_INT_MIN_1;
+		adv_param.interval_max = BT_GAP_ADV_FAST_INT_MAX_1;
 	} else {
-		adv_param = adv_param_normal;
+		adv_param.interval_min = BT_GAP_ADV_FAST_INT_MIN_2;
+		adv_param.interval_max = BT_GAP_ADV_FAST_INT_MAX_2;
+	}
+
+	if (IS_ENABLED(CONFIG_BT_WHITELIST)) {
+		int err = bt_le_whitelist_clear();
+
+		if (err) {
+			LOG_ERR("Cannot clear whitelist (err: %d)", err);
+			return err;
+		}
+
+		if (bt_addr_le_cmp(bond_addr, BT_ADDR_LE_ANY)) {
+			adv_param.options |= BT_LE_ADV_OPT_FILTER_CONN;
+			err = bt_le_whitelist_add(bond_addr);
+		}
+
+		if (err) {
+			LOG_ERR("Cannot add peer to whitelist (err: %d)", err);
+			return err;
+		}
 	}
 
 	adv_param.id = cur_identity;
@@ -204,6 +216,7 @@ static int ble_adv_start(bool can_fast_adv)
 		.peer_id = 0,
 		.peer_count = 0,
 	};
+	bt_addr_le_copy(&bond_find_data.peer_address, BT_ADDR_LE_ANY);
 	bt_foreach_bond(cur_identity, bond_find, &bond_find_data);
 
 	int err = ble_adv_stop();
@@ -228,7 +241,8 @@ static int ble_adv_start(bool can_fast_adv)
 		err = ble_adv_start_directed(&bond_find_data.peer_address,
 					     fast_adv);
 	} else {
-		err = ble_adv_start_undirected(fast_adv, swift_pair);
+		err = ble_adv_start_undirected(&bond_find_data.peer_address,
+					       fast_adv, swift_pair);
 	}
 
 	if (err == -ECONNREFUSED) {
@@ -316,17 +330,14 @@ static void ble_adv_update_fn(struct k_work *work)
 	}
 }
 
-static int settings_set(int argc, char **argv, size_t len_rd,
+static int settings_set(const char *key, size_t len_rd,
 			settings_read_cb read_cb, void *cb_arg)
 {
-	if (argc != 1) {
-		return -ENOENT;
-	}
 	/* Assuming ID is written as one digit */
-	if (!strncmp(argv[0], PEER_IS_RPA_STORAGE_NAME,
+	if (!strncmp(key, PEER_IS_RPA_STORAGE_NAME,
 	     sizeof(PEER_IS_RPA_STORAGE_NAME) - 1)) {
 		char *end;
-		long int read_id = strtol(argv[0] + strlen(argv[0]) - 1, &end, 10);
+		long int read_id = strtol(key + strlen(key) - 1, &end, 10);
 
 		if ((*end != '\0') || (read_id < 0) || (read_id >= CONFIG_BT_ID_MAX)) {
 			LOG_ERR("Identity is not a valid number");
@@ -367,7 +378,6 @@ static int init_settings(void)
 
 static void init(void)
 {
-
 	if (init_settings()) {
 		module_set_state(MODULE_STATE_ERROR);
 		return;
@@ -382,6 +392,8 @@ static void init(void)
 		k_delayed_work_init(&sp_grace_period_to, sp_grace_period_fn);
 	}
 
+	/* We should not start advertising before ble_bond is ready */
+	state = STATE_OFF;
 	module_set_state(MODULE_STATE_READY);
 }
 
@@ -492,45 +504,55 @@ static bool event_handler(const struct event_header *eh)
 
 		switch (event->op)  {
 		case PEER_OPERATION_SELECTED:
+		case PEER_OPERATION_ERASE_ADV:
+		case PEER_OPERATION_ERASE_ADV_CANCEL:
 			if ((state == STATE_OFF) || (state == STATE_GRACE_PERIOD)) {
-				cur_identity = event->arg;
+				cur_identity = event->bt_stack_id;
 				__ASSERT_NO_MSG(cur_identity < CONFIG_BT_ID_MAX);
 				break;
 			}
 
 			err = ble_adv_stop();
 
+			/* Disconnect an old identity. */
 			struct bond_find_data bond_find_data = {
 				.peer_id = 0,
 				.peer_count = 0,
 			};
-			bt_foreach_bond(cur_identity, bond_find, &bond_find_data);
+			bt_foreach_bond(cur_identity, bond_find,
+					&bond_find_data);
 			__ASSERT_NO_MSG(bond_find_data.peer_count <= 1);
 
-			if (bond_find_data.peer_count > 0) {
-				struct bt_conn *conn =
-					bt_conn_lookup_addr_le(cur_identity,
-							       &bond_find_data.peer_address);
+			struct bt_conn *conn = NULL;
 
+			if (bond_find_data.peer_count > 0) {
+				conn = bt_conn_lookup_addr_le(cur_identity,
+						&bond_find_data.peer_address);
 				if (conn) {
-					bt_conn_disconnect(conn, BT_HCI_ERR_REMOTE_USER_TERM_CONN);
+					bt_conn_disconnect(conn,
+					    BT_HCI_ERR_REMOTE_USER_TERM_CONN);
 					bt_conn_unref(conn);
 				}
 			}
 
-			cur_identity = event->arg;
+			cur_identity = event->bt_stack_id;
 			__ASSERT_NO_MSG(cur_identity < CONFIG_BT_ID_MAX);
 
-			err = ble_adv_start(true);
+			if (event->op == PEER_OPERATION_ERASE_ADV) {
+				update_peer_is_rpa(PEER_RPA_ERASED);
+			}
+			if (!conn) {
+				err = ble_adv_start(true);
+			}
 			break;
 
 		case PEER_OPERATION_ERASED:
-			update_peer_is_rpa(PEER_RPA_ERASED);
-			err = ble_adv_start(true);
+			__ASSERT_NO_MSG(cur_identity == event->bt_stack_id);
+			__ASSERT_NO_MSG(cur_identity < CONFIG_BT_ID_MAX);
 			break;
 
-		case PEER_OPERATION_ERASE:
 		case PEER_OPERATION_SELECT:
+		case PEER_OPERATION_ERASE:
 		case PEER_OPERATION_CANCEL:
 			/* Ignore */
 			break;
@@ -578,15 +600,12 @@ static bool event_handler(const struct event_header *eh)
 
 			case STATE_OFF:
 			case STATE_GRACE_PERIOD:
+			case STATE_DISABLED:
 				/* No action */
 				break;
 
-			case STATE_DISABLED:
-				/* Should never happen */
-				__ASSERT_NO_MSG(false);
-				break;
-
 			default:
+				/* Should never happen */
 				__ASSERT_NO_MSG(false);
 				break;
 			}

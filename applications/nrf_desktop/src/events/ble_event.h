@@ -45,6 +45,8 @@ enum peer_state {
 	X(SELECT)		\
 	X(SELECTED)		\
 	X(ERASE)		\
+	X(ERASE_ADV)		\
+	X(ERASE_ADV_CANCEL)	\
 	X(ERASED)		\
 	X(CANCEL)
 
@@ -57,6 +59,19 @@ enum peer_operation {
 	PEER_OPERATION_COUNT
 };
 
+/** @brief Peer type list. */
+#define PEER_TYPE_LIST			\
+	X(MOUSE)			\
+	X(KEYBOARD)			\
+
+/** @brief Peer types (position in bitmask). */
+enum peer_type {
+#define X(name) _CONCAT(PEER_TYPE_, name),
+	PEER_TYPE_LIST
+#undef X
+
+	PEER_TYPE_COUNT
+};
 
 /** @brief BLE peer event. */
 struct ble_peer_event {
@@ -72,7 +87,8 @@ struct ble_peer_operation_event {
 	struct event_header header;
 
 	enum peer_operation op;
-	u8_t arg;
+	u8_t bt_app_id;
+	u8_t bt_stack_id;
 };
 EVENT_TYPE_DECLARE(ble_peer_operation_event);
 
@@ -81,6 +97,8 @@ struct ble_discovery_complete_event {
 	struct event_header header;
 
 	struct bt_gatt_dm *dm;
+	u16_t pid;
+	enum peer_type peer_type;
 };
 EVENT_TYPE_DECLARE(ble_discovery_complete_event);
 

@@ -1,3 +1,9 @@
+#
+# Copyright (c) 2019 Nordic Semiconductor ASA
+#
+# SPDX-License-Identifier: LicenseRef-BSD-5-Clause-Nordic
+#
+
 menuconfig BT_GATT_POOL
 	bool "GATT Attribute pools"
 	default y if BT_GATT_HIDS
@@ -34,13 +40,6 @@ config BT_GATT_CHRC_POOL_SIZE
 	help
 	  Maximum number of characteristic descriptors that can be stored in the pool.
 
-config BT_GATT_CCC_POOL_SIZE
-	int "Number of CCCD descriptors"
-	default 5
-	range 0 255
-	help
-	  Maximum number of CCCD descriptors that can be stored in the pool.
-
 config BT_GATT_POOL_STATS
 	bool
 	prompt "Enable functions for printing module statistics"
@@ -48,5 +47,8 @@ config BT_GATT_POOL_STATS
 	help
 	  Enable functions for printing module statistics
 
-endif # BT_GATT_POOL
+module = BT_GATT_POOL
+module-str = GATT_POOL
+source "${ZEPHYR_BASE}/subsys/logging/Kconfig.template.log_config"
 
+endif # BT_GATT_POOL

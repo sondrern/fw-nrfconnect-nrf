@@ -40,7 +40,7 @@ const u8_t hid_report_desc[] = {
 	0x15, 0x00,         /* Logical Minimum (0) */
 	0x25, 0x01,         /* Logical Maximum (1) */
 	0x75, 0x01,         /* Report Size (1) */
-	0x95, 0x08,         /* Report Count (8) */
+	0x95, MOUSE_REPORT_BUTTON_COUNT_MAX, /* Report Count */
 	0x81, 0x02,         /* Input (Data, Variable, Absolute) */
 
 	0x05, USAGE_PAGE_MOUSE_WHEEL,
@@ -99,7 +99,7 @@ const u8_t hid_report_desc[] = {
 	0x15, 0x00,       /* Logical Minimum (0) */
 	0x25, KEYBOARD_REPORT_LAST_KEY, /* Logical Maximum */
 	0x75, 0x08,       /* Report Size (8) */
-	0x95, 0x06,       /* Report Count (6) */
+	0x95, KEYBOARD_REPORT_KEY_COUNT_MAX, /* Report Count */
 	0x81, 0x00,       /* Input (Data, Array) */
 
 	/* Report: Keyboard LEDS (output) */
@@ -116,7 +116,7 @@ const u8_t hid_report_desc[] = {
 	/* Keyboard - LEDs padding */
 	0x95, 0x01,       /* Report Count (1) */
 	0x75, 0x03,       /* Report Size (3) (padding) */
-	0x91, 0x01,       /* Output (Data, Variable, Absolute) */
+	0x91, 0x01,       /* Output (Constant, Array, Absolute) */
 
 #if (CONFIG_DESKTOP_CONFIG_CHANNEL_ENABLE && !CONFIG_DESKTOP_HID_MOUSE)
 	USER_CONFIG_FEATURE_REPORT(REPORT_ID_USER_CONFIG, REPORT_SIZE_USER_CONFIG),
@@ -124,36 +124,22 @@ const u8_t hid_report_desc[] = {
 	0xC0,           /* End Collection (Application) */
 #endif
 
-#if CONFIG_DESKTOP_HID_MPLAYER
+#if CONFIG_DESKTOP_HID_CONSUMER_CTRL
 	/* Usage page - Consumer Control */
-	0x05, USAGE_PAGE_MPLAYER,
+	0x05, USAGE_PAGE_CONSUMER_CTRL,
 	0x09, 0x01,     /* Usage (Consumer Control) */
 
 	0xA1, 0x01,     /* Collection (Application) */
 
-	0x85, REPORT_ID_MPLAYER,
+	0x85, REPORT_ID_CONSUMER_CTRL,
 	0x15, 0x00,       /* Logical minimum (0) */
-	0x25, 0x01,       /* Logical maximum (1) */
-	0x75, 0x01,       /* Report Size (1) */
-	0x95, 0x01,       /* Report Count (1) */
+	0x26, 0xFF, 0x03, /* Logical maximum (0x3FF) */
+	0x19, 0x00,       /* Usage minumum (0) */
+	0x2A, 0xFF, 0x03, /* Usage maximum (0x3FF) */
+	0x75, 0x10,       /* Report Size (16) */
+	0x95, CONSUMER_CTRL_REPORT_KEY_COUNT_MAX, /* Report Count */
+	0x81, 0x00,       /* Input (Data,Array,Absolute) */
 
-	0x09, 0xCD,       /* Usage (Play/Pause) */
-	0x81, 0x06,       /* Input (Data,Value,Relative,Bit Field) */
-	0x0A, 0x83, 0x01, /* Usage (Consumer Control Configuration) */
-	0x81, 0x06,       /* Input (Data,Value,Relative,Bit Field) */
-	0x09, 0xB5,       /* Usage (Scan Next Track) */
-	0x81, 0x06,       /* Input (Data,Value,Relative,Bit Field) */
-	0x09, 0xB6,       /* Usage (Scan Previous Track) */
-	0x81, 0x06,       /* Input (Data,Value,Relative,Bit Field) */
-
-	0x09, 0xEA,       /* Usage (Volume Down) */
-	0x81, 0x06,       /* Input (Data,Value,Relative,Bit Field) */
-	0x09, 0xE9,       /* Usage (Volume Up) */
-	0x81, 0x06,       /* Input (Data,Value,Relative,Bit Field) */
-	0x0A, 0x25, 0x02, /* Usage (AC Forward) */
-	0x81, 0x06,       /* Input (Data,Value,Relative,Bit Field) */
-	0x0A, 0x24, 0x02, /* Usage (AC Back) */
-	0x81, 0x06,       /* Input (Data,Value,Relative,Bit Field) */
 	0xC0            /* End Collection */
 #endif
 };

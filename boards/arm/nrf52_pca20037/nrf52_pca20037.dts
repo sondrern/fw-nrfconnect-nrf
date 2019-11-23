@@ -14,9 +14,6 @@
 
 	chosen {
 		zephyr,console = &uart0;
-#ifdef CONFIG_MCUMGR_SMP_UART
-		zephyr,uart-mcumgr = &uart0;
-#endif
 		zephyr,sram = &sram0;
 		zephyr,flash = &flash0;
 		zephyr,code-partition = &slot0_partition;
@@ -24,19 +21,19 @@
 };
 
 &adc {
-	status ="ok";
+	status = "okay";
 };
 
 &gpiote {
-	status ="ok";
+	status = "okay";
 };
 
 &gpio0 {
-	status ="ok";
+	status = "okay";
 };
 
 &uart0 {
-	status = "ok";
+	status = "okay";
 	compatible = "nordic,nrf-uart";
 	current-speed = <115200>;
 	tx-pin = <35>;
@@ -44,13 +41,13 @@
 };
 
 &pwm0 {
-	status = "ok";
+	status = "okay";
 	ch0-pin = <30>;
-	ch0-inverted = "true";
+	ch0-inverted;
 	ch1-pin = <29>;
-	ch1-inverted = "true";
+	ch1-inverted;
 	ch2-pin = <28>;
-	ch2-inverted = "true";
+	ch2-inverted;
 };
 
 &flash0 {

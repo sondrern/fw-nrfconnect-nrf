@@ -12,9 +12,17 @@ config AT_CMD
 
 if AT_CMD
 
+config AT_CMD_SYS_INIT
+	bool "Initialize the AT Command driver during system init"
+	default y if BSD_LIBRARY_SYS_INIT
+
+if AT_CMD_SYS_INIT
+
 config AT_CMD_INIT_PRIORITY
 	int "AT Command driver init priority"
 	default 40
+
+endif
 
 config AT_CMD_THREAD_PRIO
 	int "AT thread priority level"
@@ -28,7 +36,11 @@ config AT_CMD_THREAD_STACK_SIZE
 
 config AT_CMD_RESPONSE_MAX_LEN
 	int "Maximum AT command response length"
-	default 256
+	default 2700
+
+config AT_CMD_RESPONSE_BUFFER_COUNT
+	int "Number of buffers provided by AT command driver."
+	default 2
 
 module = AT_CMD
 module-str = AT command driver

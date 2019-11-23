@@ -4,16 +4,34 @@
 # SPDX-License-Identifier: LicenseRef-BSD-5-Clause-Nordic
 #
 
+config MCUBOOT_BUILD_S1_VARIANT
+	# This can not depend on BOOTLOADER_MCUBOOT, or SECURE_BOOT as this
+	# option has to be set when building MCUBoot itself. Instead an error
+	# is raised by CMake if an incorrect configuration is found.
+	bool "Build S1 variant of MCUBoot"
+	help
+	  Build upgrade candidate of MCUBoot for alternative slot S1.
+
+config SECURE_BOOT_CRYPTO_CLIENT
+	bool "Include Secure Bootloader crypto client API"
+	help
+	  Set this option to enable the crypto client API
+	  which gives access to the cryptographic functions
+	  from the secure bootloader. This will only work
+	  when the secure bootloader is enabled.
+
 config SECURE_BOOT
 	bool "Use Secure Bootloader"
 	depends on !IS_SECURE_BOOTLOADER
-	select FW_METADATA
-	select SECURE_BOOT_CRYPTO
+	select SECURE_BOOT_VALIDATION
 	help
 	  Set this option to enable the first stage bootloader which
 	  verifies the signature of the app.
 
 if SECURE_BOOT
+
+module=B0
+source "${ZEPHYR_BASE}/../nrf/subsys/partition_manager/Kconfig.template.build_strategy"
 
 config SB_PRIVATE_KEY_PROVIDED
 	bool
@@ -88,30 +106,66 @@ config SB_PUBLIC_KEY_FILES
 	  will be used.
 	  Example value: ~/keys/pk1.pem,~/keys/pk2.pem,~/keys/pk3.pem
 
+config SB_DEBUG_SIGNATURE_PUBLIC_KEY_LAST
+	bool "[DEBUG] Place signing public key last"
+	default n
+	help
+	  Place the public key used for signing last in the list instead of
+	  first. This is meant to be used for testing looping through the
+	  public keys.
+
 
 endif # SECURE_BOOT
 
 menuconfig IS_SECURE_BOOTLOADER
 	bool "Current app is bootloader"
-	select SECURE_BOOT_CRYPTO
+	select SECURE_BOOT_VALIDATION
 	select SW_VECTOR_RELAY if SOC_SERIES_NRF51X
-	select FW_METADATA
-	depends on !KERNEL
 	help
 	  This option is set by the first stage bootloader app to include all
 	  files and set all the options required.
 
 if IS_SECURE_BOOTLOADER
 
-rsource "debug/Kconfig"
+partition=B0_IMAGE
+partition-size=0x7000
+source "${ZEPHYR_BASE}/../nrf/subsys/partition_manager/Kconfig.template.partition_size"
 
+menuconfig SECURE_BOOT_DEBUG
+	bool "Printing"
+	select BOOT_BANNER
+	select PRINTK
+	select CONSOLE
+	select SERIAL
+
+if SECURE_BOOT_DEBUG
+choice SECURE_BOOT_DEBUG_BACKEND
+	prompt "Where to print to"
+	default SECURE_BOOT_DEBUG_UART
+
+config SECURE_BOOT_DEBUG_UART
+	bool "Print to UART."
+	select UART_NRFX
+	select UART_CONSOLE
+
+config SECURE_BOOT_DEBUG_RTT
+	bool "Print to RTT"
+	select RTT_CONSOLE
+	select USE_SEGGER_RTT
+endchoice
+
+config SB_BPROT_IN_DEBUG
+	bool "Enable block protect in debug"
+	default y
+	depends on (HAS_HW_NRF_BPROT || HAS_HW_NRF_MPU)
+
+endif # SECURE_BOOT_DEBUG
 endif # IS_SECURE_BOOTLOADER
 
-if IS_SECURE_BOOTLOADER || SECURE_BOOT
-config SB_FIRMWARE_INFO_OFFSET
-	hex
-	default FW_FIRMWARE_INFO_OFFSET
+if IS_SECURE_BOOTLOADER || SECURE_BOOT || SECURE_BOOT_CRYPTO_CLIENT
 
 rsource "bl_crypto/Kconfig"
-endif # IS_SECURE_BOOTLOADER || SECURE_BOOT
+rsource "bl_validation/Kconfig"
+
+endif
 

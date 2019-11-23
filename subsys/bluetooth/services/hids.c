@@ -18,33 +18,39 @@
 #include <bluetooth/hci.h>
 #include <bluetooth/uuid.h>
 
-#include <bluetooth/gatt_pool.h>
 #include <bluetooth/services/hids.h>
 
 #include <logging/log.h>
 
 #define BOOT_MOUSE_INPUT_REPORT_MIN_SIZE 3
 
+#define GATT_PERM_READ_MASK     (BT_GATT_PERM_READ | \
+				 BT_GATT_PERM_READ_ENCRYPT | \
+				 BT_GATT_PERM_READ_AUTHEN)
+#define GATT_PERM_WRITE_MASK    (BT_GATT_PERM_WRITE | \
+				 BT_GATT_PERM_WRITE_ENCRYPT | \
+				 BT_GATT_PERM_WRITE_AUTHEN)
+
+#ifndef CONFIG_BT_GATT_HIDS_DEFAULT_PERM_RW_AUTHEN
+#define CONFIG_BT_GATT_HIDS_DEFAULT_PERM_RW_AUTHEN 0
+#endif
+#ifndef CONFIG_BT_GATT_HIDS_DEFAULT_PERM_RW_ENCRYPT
+#define CONFIG_BT_GATT_HIDS_DEFAULT_PERM_RW_ENCRYPT 0
+#endif
+#ifndef CONFIG_BT_GATT_HIDS_DEFAULT_PERM_RW
+#define CONFIG_BT_GATT_HIDS_DEFAULT_PERM_RW 0
+#endif
+
+#define HIDS_GATT_PERM_DEFAULT ( \
+	CONFIG_BT_GATT_HIDS_DEFAULT_PERM_RW_AUTHEN ?                 \
+	(BT_GATT_PERM_READ_AUTHEN | BT_GATT_PERM_WRITE_AUTHEN) :     \
+	CONFIG_BT_GATT_HIDS_DEFAULT_PERM_RW_ENCRYPT ?                \
+	(BT_GATT_PERM_READ_ENCRYPT | BT_GATT_PERM_WRITE_ENCRYPT) :   \
+	(BT_GATT_PERM_READ | BT_GATT_PERM_WRITE)                     \
+	)
+
+
 LOG_MODULE_REGISTER(bt_gatt_hids, CONFIG_BT_GATT_HIDS_LOG_LEVEL);
-
-/* HID Protocol modes. */
-enum {
-	HIDS_PROTOCOL_MODE_BOOT = 0x00,
-	HIDS_PROTOCOL_MODE_REPORT = 0x01
-};
-
-/* HID Control Point settings. */
-enum {
-	HIDS_CONTROL_POINT_SUSPEND = 0x00,
-	HIDS_CONTROL_POINT_EXIT_SUSPEND = 0x01
-};
-
-/* HIDS report type values. */
-enum {
-	HIDS_INPUT = 0x01,
-	HIDS_OUTPUT = 0x02,
-	HIDS_FEATURE = 0x03,
-};
 
 int bt_gatt_hids_notify_connected(struct bt_gatt_hids *hids_obj,
 				  struct bt_conn *conn)
@@ -63,7 +69,7 @@ int bt_gatt_hids_notify_connected(struct bt_gatt_hids *hids_obj,
 
 	memset(conn_data, 0, bt_conn_ctx_block_size_get(hids_obj->conn_ctx));
 
-	conn_data->pm_ctx_value = HIDS_PROTOCOL_MODE_REPORT;
+	conn_data->pm_ctx_value = BT_GATT_HIDS_PM_REPORT;
 
 	/* Assign input report context. */
 	conn_data->inp_rep_ctx =
@@ -132,7 +138,7 @@ static ssize_t hids_protocol_mode_write(struct bt_conn *conn,
 {
 	LOG_DBG("Writing to Protocol Mode characteristic.");
 
-	struct bt_gatt_hids_pm *pm = attr->user_data;
+	struct bt_gatt_hids_pm_data *pm = attr->user_data;
 	struct bt_gatt_hids *hids = CONTAINER_OF(pm, struct bt_gatt_hids, pm);
 	u8_t const *new_pm = (u8_t const *)buf;
 
@@ -151,13 +157,13 @@ static ssize_t hids_protocol_mode_write(struct bt_conn *conn,
 	}
 
 	switch (*new_pm) {
-	case HIDS_PROTOCOL_MODE_BOOT:
+	case BT_GATT_HIDS_PM_BOOT:
 		if (pm->evt_handler) {
 			pm->evt_handler(BT_GATT_HIDS_PM_EVT_BOOT_MODE_ENTERED,
 					conn);
 		}
 		break;
-	case HIDS_PROTOCOL_MODE_REPORT:
+	case BT_GATT_HIDS_PM_REPORT:
 		if (pm->evt_handler) {
 			pm->evt_handler(BT_GATT_HIDS_PM_EVT_REPORT_MODE_ENTERED,
 					conn);
@@ -180,7 +186,7 @@ static ssize_t hids_protocol_mode_read(struct bt_conn *conn,
 {
 	LOG_DBG("Reading from Protocol Mode characteristic.");
 
-	struct bt_gatt_hids_pm *pm = attr->user_data;
+	struct bt_gatt_hids_pm_data *pm = attr->user_data;
 	struct bt_gatt_hids *hids = CONTAINER_OF(pm, struct bt_gatt_hids, pm);
 	ssize_t ret_len;
 
@@ -255,7 +261,7 @@ static ssize_t hids_inp_rep_ref_read(struct bt_conn *conn,
 	u8_t report_ref[2];
 
 	report_ref[0] = *((u8_t *)attr->user_data); /* Report ID */
-	report_ref[1] = HIDS_INPUT;
+	report_ref[1] = BT_GATT_HIDS_REPORT_TYPE_INPUT;
 
 	return bt_gatt_attr_read(conn, attr, buf, len, offset, report_ref,
 				 sizeof(report_ref));
@@ -352,7 +358,7 @@ static ssize_t hids_outp_rep_ref_read(struct bt_conn *conn,
 	u8_t report_ref[2];
 
 	report_ref[0] = *((u8_t *)attr->user_data); /* Report ID */
-	report_ref[1] = HIDS_OUTPUT;
+	report_ref[1] = BT_GATT_HIDS_REPORT_TYPE_OUTPUT;
 
 	return bt_gatt_attr_read(conn, attr, buf, len, offset, report_ref,
 				 sizeof(report_ref));
@@ -449,7 +455,7 @@ static ssize_t hids_feat_rep_ref_read(struct bt_conn *conn,
 	u8_t report_ref[2];
 
 	report_ref[0] = *((u8_t *)attr->user_data); /* Report ID */
-	report_ref[1] = HIDS_FEATURE;
+	report_ref[1] = BT_GATT_HIDS_REPORT_TYPE_FEATURE;
 
 	return bt_gatt_attr_read(conn, attr, buf, len, offset, report_ref,
 				 sizeof(report_ref));
@@ -461,7 +467,7 @@ static void hids_input_report_ccc_changed(struct bt_gatt_attr const *attr,
 	LOG_DBG("Input Report CCCD has changed.");
 
 	struct bt_gatt_hids_inp_rep *inp_rep =
-	    CONTAINER_OF(((struct _bt_gatt_ccc *)attr->user_data)->cfg,
+	    CONTAINER_OF((struct _bt_gatt_ccc *)attr->user_data,
 			 struct bt_gatt_hids_inp_rep, ccc);
 
 	if (value == BT_GATT_CCC_NOTIFY) {
@@ -515,7 +521,7 @@ static void hids_boot_mouse_inp_rep_ccc_changed(struct bt_gatt_attr const *attr,
 	LOG_DBG("Boot Mouse Input Report CCCD has changed.");
 
 	struct bt_gatt_hids_boot_mouse_inp_rep *boot_mouse_rep =
-	    CONTAINER_OF(((struct _bt_gatt_ccc *)attr->user_data)->cfg,
+	    CONTAINER_OF((struct _bt_gatt_ccc *)attr->user_data,
 			 struct bt_gatt_hids_boot_mouse_inp_rep, ccc);
 
 	if (value == BT_GATT_CCC_NOTIFY) {
@@ -567,7 +573,7 @@ static void hids_boot_kb_inp_rep_ccc_changed(struct bt_gatt_attr const *attr,
 	LOG_DBG("Boot Keyboard Input Report CCCD has changed.");
 
 	struct bt_gatt_hids_boot_kb_inp_rep *boot_kb_inp_rep =
-	    CONTAINER_OF(((struct _bt_gatt_ccc *)attr->user_data)->cfg,
+	    CONTAINER_OF((struct _bt_gatt_ccc *)attr->user_data,
 			 struct bt_gatt_hids_boot_kb_inp_rep, ccc);
 
 	if (value == BT_GATT_CCC_NOTIFY) {
@@ -691,12 +697,12 @@ static ssize_t hids_ctrl_point_write(struct bt_conn *conn,
 	}
 
 	switch (*new_cp) {
-	case HIDS_CONTROL_POINT_SUSPEND:
+	case BT_GATT_HIDS_CONTROL_POINT_SUSPEND:
 		if (cp->evt_handler) {
 			cp->evt_handler(BT_GATT_HIDS_CP_EVT_HOST_SUSP);
 		}
 		break;
-	case HIDS_CONTROL_POINT_EXIT_SUSPEND:
+	case BT_GATT_HIDS_CONTROL_POINT_EXIT_SUSPEND:
 		if (cp->evt_handler) {
 			cp->evt_handler(BT_GATT_HIDS_CP_EVT_HOST_EXIT_SUSP);
 		}
@@ -739,26 +745,34 @@ hids_input_reports_register(struct bt_gatt_hids *hids_obj,
 	for (size_t i = 0; i < hids_obj->inp_rep_group.cnt; i++) {
 		struct bt_gatt_hids_inp_rep *hids_inp_rep =
 		    &hids_obj->inp_rep_group.reports[i];
+		u8_t rperm = hids_inp_rep->perm & GATT_PERM_READ_MASK;
+		u8_t wperm;
 
-		BT_GATT_POOL_CHRC_GET(&hids_obj->svc, BT_UUID_HIDS_REPORT,
-				      BT_GATT_CHRC_READ | BT_GATT_CHRC_NOTIFY);
+		if (rperm == 0) {
+			rperm = HIDS_GATT_PERM_DEFAULT & GATT_PERM_READ_MASK;
+		}
+		wperm = ((rperm & BT_GATT_PERM_READ) ?
+				BT_GATT_PERM_WRITE : 0) |
+			((rperm & BT_GATT_PERM_READ_ENCRYPT) ?
+				BT_GATT_PERM_WRITE_ENCRYPT : 0) |
+			((rperm & BT_GATT_PERM_READ_AUTHEN) ?
+				BT_GATT_PERM_WRITE_AUTHEN : 0);
 
-		hids_inp_rep->att_ind = hids_obj->svc.attr_count;
+		BT_GATT_POOL_CHRC(&hids_obj->gp,
+				  BT_UUID_HIDS_REPORT,
+				  BT_GATT_CHRC_READ | BT_GATT_CHRC_NOTIFY,
+				  rperm, hids_inp_rep_read, NULL,
+				  hids_inp_rep);
+
+		hids_inp_rep->att_ind = hids_obj->gp.svc.attr_count - 1;
 		hids_inp_rep->offset = offset;
 		hids_inp_rep->idx = i;
 
-		BT_GATT_POOL_DESC_GET(
-		    &hids_obj->svc,
-		    BT_GATT_DESCRIPTOR(BT_UUID_HIDS_REPORT, BT_GATT_PERM_READ,
-				       hids_inp_rep_read, NULL, hids_inp_rep));
-
-		BT_GATT_POOL_CCC_GET(&hids_obj->svc, hids_inp_rep->ccc,
-				     hids_input_report_ccc_changed);
-		BT_GATT_POOL_DESC_GET(
-		    &hids_obj->svc,
-		    BT_GATT_DESCRIPTOR(BT_UUID_HIDS_REPORT_REF,
-				       BT_GATT_PERM_READ, hids_inp_rep_ref_read,
-				       NULL, &hids_inp_rep->id));
+		BT_GATT_POOL_CCC(&hids_obj->gp, hids_inp_rep->ccc,
+				 hids_input_report_ccc_changed,  wperm | rperm);
+		BT_GATT_POOL_DESC(&hids_obj->gp, BT_UUID_HIDS_REPORT_REF,
+				  rperm, hids_inp_rep_ref_read,
+				  NULL, &hids_inp_rep->id);
 		offset += hids_inp_rep->size;
 	}
 }
@@ -777,26 +791,30 @@ static void hids_outp_reports_register(struct bt_gatt_hids *hids_obj,
 	for (size_t i = 0; i < hids_obj->outp_rep_group.cnt; i++) {
 		struct bt_gatt_hids_outp_feat_rep *hids_outp_rep =
 		    &hids_obj->outp_rep_group.reports[i];
+		u8_t perm = hids_outp_rep->perm;
 
-		BT_GATT_POOL_CHRC_GET(&hids_obj->svc, BT_UUID_HIDS_REPORT,
-				      BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE |
-					  BT_GATT_CHRC_WRITE_WITHOUT_RESP);
+		if (0 == (perm & GATT_PERM_READ_MASK)) {
+			perm |= HIDS_GATT_PERM_DEFAULT & GATT_PERM_READ_MASK;
+		}
+		if (0 == (perm & GATT_PERM_WRITE_MASK)) {
+			perm |= HIDS_GATT_PERM_DEFAULT & GATT_PERM_WRITE_MASK;
+		}
 
-		hids_outp_rep->att_ind = hids_obj->svc.attr_count;
+		BT_GATT_POOL_CHRC(&hids_obj->gp,
+				  BT_UUID_HIDS_REPORT,
+				  BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE |
+				  BT_GATT_CHRC_WRITE_WITHOUT_RESP, perm,
+				  hids_outp_rep_read, hids_outp_rep_write,
+				  hids_outp_rep);
+
+		hids_outp_rep->att_ind = hids_obj->gp.svc.attr_count - 1;
 		hids_outp_rep->offset = offset;
 		hids_outp_rep->idx = i;
 
-		BT_GATT_POOL_DESC_GET(
-		    &hids_obj->svc,
-		    BT_GATT_DESCRIPTOR(BT_UUID_HIDS_REPORT,
-				       (BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),
-				       hids_outp_rep_read, hids_outp_rep_write,
-				       hids_outp_rep));
-		BT_GATT_POOL_DESC_GET(
-		    &hids_obj->svc,
-		    BT_GATT_DESCRIPTOR(
-			BT_UUID_HIDS_REPORT_REF, BT_GATT_PERM_READ,
-			hids_outp_rep_ref_read, NULL, &hids_outp_rep->id));
+		BT_GATT_POOL_DESC(&hids_obj->gp, BT_UUID_HIDS_REPORT_REF,
+				  perm & GATT_PERM_READ_MASK,
+				  hids_outp_rep_ref_read,
+				  NULL, &hids_outp_rep->id);
 
 		offset += hids_outp_rep->size;
 	}
@@ -816,25 +834,29 @@ static void hids_feat_reports_register(struct bt_gatt_hids *hids_obj,
 	for (size_t i = 0; i < hids_obj->feat_rep_group.cnt; i++) {
 		struct bt_gatt_hids_outp_feat_rep *hids_feat_rep =
 		    &hids_obj->feat_rep_group.reports[i];
+		u8_t perm = hids_feat_rep->perm;
 
-		BT_GATT_POOL_CHRC_GET(&hids_obj->svc, BT_UUID_HIDS_REPORT,
-				      BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE);
+		if (0 == (perm & GATT_PERM_READ_MASK)) {
+			perm |= HIDS_GATT_PERM_DEFAULT & GATT_PERM_READ_MASK;
+		}
+		if (0 == (perm & GATT_PERM_WRITE_MASK)) {
+			perm |= HIDS_GATT_PERM_DEFAULT & GATT_PERM_WRITE_MASK;
+		}
 
-		hids_feat_rep->att_ind = hids_obj->svc.attr_count;
+		BT_GATT_POOL_CHRC(&hids_obj->gp,
+				  BT_UUID_HIDS_REPORT,
+				  BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE, perm,
+				  hids_feat_rep_read, hids_feat_rep_write,
+				  hids_feat_rep);
+
+		hids_feat_rep->att_ind = hids_obj->gp.svc.attr_count - 1;
 		hids_feat_rep->offset = offset;
 		hids_feat_rep->idx = i;
 
-		BT_GATT_POOL_DESC_GET(
-		    &hids_obj->svc,
-		    BT_GATT_DESCRIPTOR(BT_UUID_HIDS_REPORT,
-				       (BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),
-				       hids_feat_rep_read, hids_feat_rep_write,
-				       hids_feat_rep));
-		BT_GATT_POOL_DESC_GET(
-		    &hids_obj->svc,
-		    BT_GATT_DESCRIPTOR(
-			BT_UUID_HIDS_REPORT_REF, BT_GATT_PERM_READ,
-			hids_feat_rep_ref_read, NULL, &hids_feat_rep->id));
+		BT_GATT_POOL_DESC(&hids_obj->gp, BT_UUID_HIDS_REPORT_REF,
+				  perm & GATT_PERM_READ_MASK,
+				  hids_feat_rep_ref_read,
+				  NULL, &hids_feat_rep->id);
 
 		offset += hids_feat_rep->size;
 	}
@@ -849,18 +871,16 @@ int bt_gatt_hids_init(struct bt_gatt_hids *hids_obj,
 	hids_obj->cp.evt_handler = init_param->cp_evt_handler;
 
 	/* Register primary service. */
-	BT_GATT_POOL_SVC_GET(&hids_obj->svc, BT_UUID_HIDS);
+	BT_GATT_POOL_SVC(&hids_obj->gp, BT_UUID_HIDS);
 
 	/* Register Protocol Mode characteristic. */
-	BT_GATT_POOL_CHRC_GET(&hids_obj->svc, BT_UUID_HIDS_PROTOCOL_MODE,
-			      BT_GATT_CHRC_READ |
-				  BT_GATT_CHRC_WRITE_WITHOUT_RESP);
-	BT_GATT_POOL_DESC_GET(
-	    &hids_obj->svc,
-	    BT_GATT_DESCRIPTOR(BT_UUID_HIDS_PROTOCOL_MODE,
-			       BT_GATT_PERM_READ | BT_GATT_PERM_WRITE,
-			       hids_protocol_mode_read,
-			       hids_protocol_mode_write, &hids_obj->pm));
+	BT_GATT_POOL_CHRC(&hids_obj->gp,
+			  BT_UUID_HIDS_PROTOCOL_MODE,
+			  BT_GATT_CHRC_READ |
+			  BT_GATT_CHRC_WRITE_WITHOUT_RESP,
+			  HIDS_GATT_PERM_DEFAULT,
+			  hids_protocol_mode_read, hids_protocol_mode_write,
+			  &hids_obj->pm);
 
 	/* Register Input Report characteristics. */
 	hids_input_reports_register(hids_obj, init_param);
@@ -875,12 +895,11 @@ int bt_gatt_hids_init(struct bt_gatt_hids *hids_obj,
 	memcpy(&hids_obj->rep_map, &init_param->rep_map,
 	       sizeof(hids_obj->rep_map));
 
-	BT_GATT_POOL_CHRC_GET(&hids_obj->svc, BT_UUID_HIDS_REPORT_MAP,
-			      BT_GATT_CHRC_READ);
-	BT_GATT_POOL_DESC_GET(
-	    &hids_obj->svc,
-	    BT_GATT_DESCRIPTOR(BT_UUID_HIDS_REPORT_MAP, BT_GATT_PERM_READ,
-			       hids_report_map_read, NULL, &hids_obj->rep_map));
+	BT_GATT_POOL_CHRC(&hids_obj->gp,
+			  BT_UUID_HIDS_REPORT_MAP,
+			  BT_GATT_CHRC_READ,
+			  HIDS_GATT_PERM_DEFAULT & GATT_PERM_READ_MASK,
+			  hids_report_map_read, NULL, &hids_obj->rep_map);
 
 	/* Register HID Boot Mouse Input Report characteristic, its descriptor
 	 * and CCC.
@@ -888,24 +907,22 @@ int bt_gatt_hids_init(struct bt_gatt_hids *hids_obj,
 	if (init_param->is_mouse) {
 		hids_obj->is_mouse = init_param->is_mouse;
 
-		BT_GATT_POOL_CHRC_GET(&hids_obj->svc,
-				      BT_UUID_HIDS_BOOT_MOUSE_IN_REPORT,
-				      BT_GATT_CHRC_READ | BT_GATT_CHRC_NOTIFY);
+		BT_GATT_POOL_CHRC(&hids_obj->gp,
+				  BT_UUID_HIDS_BOOT_MOUSE_IN_REPORT,
+				  BT_GATT_CHRC_READ | BT_GATT_CHRC_NOTIFY,
+				  HIDS_GATT_PERM_DEFAULT & GATT_PERM_READ_MASK,
+				  hids_boot_mouse_inp_report_read, NULL,
+				  &hids_obj->boot_mouse_inp_rep);
 
-		hids_obj->boot_mouse_inp_rep.att_ind = hids_obj->svc.attr_count;
+		hids_obj->boot_mouse_inp_rep.att_ind =
+			hids_obj->gp.svc.attr_count - 1;
 		hids_obj->boot_mouse_inp_rep.handler =
-		    init_param->boot_mouse_notif_handler;
+			init_param->boot_mouse_notif_handler;
 
-		BT_GATT_POOL_DESC_GET(
-		    &hids_obj->svc,
-		    BT_GATT_DESCRIPTOR(BT_UUID_HIDS_BOOT_MOUSE_IN_REPORT,
-				       BT_GATT_PERM_READ,
-				       hids_boot_mouse_inp_report_read, NULL,
-				       &hids_obj->boot_mouse_inp_rep));
-
-		BT_GATT_POOL_CCC_GET(&hids_obj->svc,
-				     hids_obj->boot_mouse_inp_rep.ccc,
-				     hids_boot_mouse_inp_rep_ccc_changed);
+		BT_GATT_POOL_CCC(&hids_obj->gp,
+				 hids_obj->boot_mouse_inp_rep.ccc,
+				 hids_boot_mouse_inp_rep_ccc_changed,
+				 HIDS_GATT_PERM_DEFAULT);
 	}
 
 	/* Register HID Boot Keyboard Input/Output Report characteristic, its
@@ -914,63 +931,56 @@ int bt_gatt_hids_init(struct bt_gatt_hids *hids_obj,
 	if (init_param->is_kb) {
 		hids_obj->is_kb = init_param->is_kb;
 
-		BT_GATT_POOL_CHRC_GET(&hids_obj->svc,
-				      BT_UUID_HIDS_BOOT_KB_IN_REPORT,
-				      BT_GATT_CHRC_READ | BT_GATT_CHRC_NOTIFY);
+		BT_GATT_POOL_CHRC(&hids_obj->gp,
+				  BT_UUID_HIDS_BOOT_KB_IN_REPORT,
+				  BT_GATT_CHRC_READ | BT_GATT_CHRC_NOTIFY,
+				  HIDS_GATT_PERM_DEFAULT & GATT_PERM_READ_MASK,
+				  hids_boot_kb_inp_report_read, NULL,
+				  &hids_obj->boot_kb_inp_rep);
 
-		hids_obj->boot_kb_inp_rep.att_ind = hids_obj->svc.attr_count;
+		hids_obj->boot_kb_inp_rep.att_ind =
+			hids_obj->gp.svc.attr_count - 1;
 		hids_obj->boot_kb_inp_rep.handler =
 		    init_param->boot_kb_notif_handler;
 
-		BT_GATT_POOL_DESC_GET(
-		    &hids_obj->svc,
-		    BT_GATT_DESCRIPTOR(BT_UUID_HIDS_BOOT_KB_IN_REPORT,
-				       BT_GATT_PERM_READ,
-				       hids_boot_kb_inp_report_read, NULL,
-				       &hids_obj->boot_kb_inp_rep));
+		BT_GATT_POOL_CCC(&hids_obj->gp,
+				 hids_obj->boot_kb_inp_rep.ccc,
+				 hids_boot_kb_inp_rep_ccc_changed,
+				 HIDS_GATT_PERM_DEFAULT);
 
-		BT_GATT_POOL_CCC_GET(&hids_obj->svc,
-				     hids_obj->boot_kb_inp_rep.ccc,
-				     hids_boot_kb_inp_rep_ccc_changed);
+		BT_GATT_POOL_CHRC(&hids_obj->gp,
+				  BT_UUID_HIDS_BOOT_KB_OUT_REPORT,
+				  BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE |
+				  BT_GATT_CHRC_WRITE_WITHOUT_RESP,
+				  HIDS_GATT_PERM_DEFAULT,
+				  hids_boot_kb_outp_report_read,
+				  hids_boot_kb_outp_report_write,
+				  &hids_obj->boot_kb_outp_rep);
 
-		BT_GATT_POOL_CHRC_GET(&hids_obj->svc,
-				      BT_UUID_HIDS_BOOT_KB_OUT_REPORT,
-				      BT_GATT_CHRC_READ | BT_GATT_CHRC_WRITE |
-					  BT_GATT_CHRC_WRITE_WITHOUT_RESP);
-
-		hids_obj->boot_kb_outp_rep.att_ind = hids_obj->svc.attr_count;
+		hids_obj->boot_kb_outp_rep.att_ind =
+			hids_obj->gp.svc.attr_count - 1;
 		hids_obj->boot_kb_outp_rep.handler =
-		    init_param->boot_kb_outp_rep_handler;
-
-		BT_GATT_POOL_DESC_GET(
-		    &hids_obj->svc,
-		    BT_GATT_DESCRIPTOR(BT_UUID_HIDS_BOOT_KB_OUT_REPORT,
-				       (BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),
-				       hids_boot_kb_outp_report_read,
-				       hids_boot_kb_outp_report_write,
-				       &hids_obj->boot_kb_outp_rep));
+			init_param->boot_kb_outp_rep_handler;
 	}
 
 	/* Register HID Information characteristic and its descriptor. */
 	hid_information_encode(hids_obj->info, &init_param->info);
 
-	BT_GATT_POOL_CHRC_GET(&hids_obj->svc, BT_UUID_HIDS_INFO,
-			      BT_GATT_CHRC_READ);
-	BT_GATT_POOL_DESC_GET(
-	    &hids_obj->svc,
-	    BT_GATT_DESCRIPTOR(BT_UUID_HIDS_INFO, BT_GATT_PERM_READ,
-			       hids_info_read, NULL, hids_obj->info));
+	BT_GATT_POOL_CHRC(&hids_obj->gp,
+			  BT_UUID_HIDS_INFO,
+			  BT_GATT_CHRC_READ,
+			  HIDS_GATT_PERM_DEFAULT & GATT_PERM_READ_MASK,
+			  hids_info_read, NULL, hids_obj->info);
 
 	/* Register HID Control Point characteristic and its descriptor. */
-	BT_GATT_POOL_CHRC_GET(&hids_obj->svc, BT_UUID_HIDS_CTRL_POINT,
-			      BT_GATT_CHRC_WRITE_WITHOUT_RESP);
-	BT_GATT_POOL_DESC_GET(
-	    &hids_obj->svc,
-	    BT_GATT_DESCRIPTOR(BT_UUID_HIDS_CTRL_POINT, BT_GATT_PERM_WRITE,
-			       NULL, hids_ctrl_point_write, &hids_obj->cp));
+	BT_GATT_POOL_CHRC(&hids_obj->gp,
+			  BT_UUID_HIDS_CTRL_POINT,
+			  BT_GATT_CHRC_WRITE_WITHOUT_RESP,
+			  HIDS_GATT_PERM_DEFAULT | GATT_PERM_WRITE_MASK,
+			  NULL, hids_ctrl_point_write, &hids_obj->cp);
 
 	/* Register HIDS attributes in GATT database. */
-	return bt_gatt_service_register(&hids_obj->svc);
+	return bt_gatt_service_register(&hids_obj->gp.svc);
 }
 
 int bt_gatt_hids_uninit(struct bt_gatt_hids *hids_obj)
@@ -978,85 +988,23 @@ int bt_gatt_hids_uninit(struct bt_gatt_hids *hids_obj)
 	int err;
 
 	/* Unregister HIDS attributes in GATT database. */
-	err = bt_gatt_service_unregister(&hids_obj->svc);
+	err = bt_gatt_service_unregister(&hids_obj->gp.svc);
 	if (err) {
 		return err;
 	}
 
-	struct bt_gatt_attr *attr_start = hids_obj->svc.attrs;
-	struct bt_gatt_attr *attr = attr_start;
+	struct bt_gatt_attr *attr_start = hids_obj->gp.svc.attrs;
 	struct bt_conn_ctx_lib *conn_ctx = hids_obj->conn_ctx;
 
-	/* Unregister primary service. */
-	bt_gatt_pool_svc_put(attr++);
-
-	/* Unregister Protocol Mode characteristic. */
-	bt_gatt_pool_chrc_put(attr++);
-	bt_gatt_pool_desc_put(attr++);
-
-	/* Unregister Input Report characteristics. */
-	for (size_t i = 0; i < hids_obj->inp_rep_group.cnt; i++) {
-		bt_gatt_pool_chrc_put(attr++);
-		bt_gatt_pool_desc_put(attr++);
-		bt_gatt_pool_ccc_put(attr++);
-		bt_gatt_pool_desc_put(attr++);
-	}
-
-	/* Unregister Output Report characteristics. */
-	for (size_t i = 0; i < hids_obj->outp_rep_group.cnt; i++) {
-		bt_gatt_pool_chrc_put(attr++);
-		bt_gatt_pool_desc_put(attr++);
-		bt_gatt_pool_desc_put(attr++);
-	}
-
-	/* Unregister Feature Report characteristics. */
-	for (size_t i = 0; i < hids_obj->feat_rep_group.cnt; i++) {
-		bt_gatt_pool_chrc_put(attr++);
-		bt_gatt_pool_desc_put(attr++);
-		bt_gatt_pool_desc_put(attr++);
-	}
-
-	/* Unregister Report Map characteristic and its descriptor. */
-	bt_gatt_pool_chrc_put(attr++);
-	bt_gatt_pool_desc_put(attr++);
-
-	/* Unregister HID Boot Mouse Input Report characteristic, its descriptor
-	 * and CCC.
-	 */
-	if (hids_obj->is_mouse) {
-		bt_gatt_pool_chrc_put(attr++);
-		bt_gatt_pool_desc_put(attr++);
-		bt_gatt_pool_ccc_put(attr++);
-	}
-
-	/* Unregister HID Boot Keyboard Input/Output Report characteristic, its
-	 * descriptor and CCC.
-	 */
-	if (hids_obj->is_kb) {
-		bt_gatt_pool_chrc_put(attr++);
-		bt_gatt_pool_desc_put(attr++);
-		bt_gatt_pool_ccc_put(attr++);
-		bt_gatt_pool_chrc_put(attr++);
-		bt_gatt_pool_desc_put(attr++);
-	}
-
-	/* Unregister HID Information characteristic and its descriptor. */
-	bt_gatt_pool_chrc_put(attr++);
-	bt_gatt_pool_desc_put(attr++);
-
-	/* Unregister HID Control Point characteristic and its descriptor. */
-	bt_gatt_pool_chrc_put(attr++);
-	bt_gatt_pool_desc_put(attr++);
-
-	__ASSERT((attr - attr_start) == hids_obj->svc.attr_count,
-		 "Failed to unregister full list of attributes.");
+	/* Free the whole GATT pool */
+	bt_gatt_pool_free(&hids_obj->gp);
 
 	/* Free all allocated memory. */
 	bt_conn_ctx_free_all(hids_obj->conn_ctx);
 
 	/* Reset HIDS instance. */
 	memset(hids_obj, 0, sizeof(*hids_obj));
-	hids_obj->svc.attrs = attr_start;
+	hids_obj->gp.svc.attrs = attr_start;
 	hids_obj->conn_ctx = conn_ctx;
 
 	return 0;
@@ -1097,7 +1045,7 @@ static int inp_rep_notify_all(struct bt_gatt_hids *hids_obj,
 		if (ctx) {
 			bool notification_enabled =
 			    hids_is_notification_enabled(ctx->conn,
-							 hids_inp_rep->ccc);
+							 hids_inp_rep->ccc.cfg);
 			if (notification_enabled) {
 				conn_data = ctx->data;
 				rep_data = conn_data->inp_rep_ctx +
@@ -1113,9 +1061,14 @@ static int inp_rep_notify_all(struct bt_gatt_hids *hids_obj,
 	}
 
 	if (rep_data != NULL) {
-		return bt_gatt_notify_cb(
-		    NULL, &hids_obj->svc.attrs[hids_inp_rep->att_ind], rep,
-		    hids_inp_rep->size, cb, NULL);
+		struct bt_gatt_notify_params params = {0};
+
+		params.attr = &hids_obj->gp.svc.attrs[hids_inp_rep->att_ind];
+		params.data = rep;
+		params.len = hids_inp_rep->size;
+		params.func = cb;
+
+		return bt_gatt_notify_cb(NULL, &params);
 	} else {
 		return -ENODATA;
 	}
@@ -1138,7 +1091,7 @@ int bt_gatt_hids_inp_rep_send(struct bt_gatt_hids *hids_obj,
 		return inp_rep_notify_all(hids_obj, hids_inp_rep, rep, len, cb);
 	}
 
-	if (!hids_is_notification_enabled(conn, hids_inp_rep->ccc)) {
+	if (!hids_is_notification_enabled(conn, hids_inp_rep->ccc.cfg)) {
 		return -EACCES;
 	}
 
@@ -1153,9 +1106,15 @@ int bt_gatt_hids_inp_rep_send(struct bt_gatt_hids *hids_obj,
 	rep_data = conn_data->inp_rep_ctx + hids_inp_rep->offset;
 
 	store_input_report(hids_inp_rep, rep_data, rep, len);
-	int err =
-	    bt_gatt_notify_cb(conn, &hids_obj->svc.attrs[hids_inp_rep->att_ind],
-			      rep, hids_inp_rep->size, cb, NULL);
+
+	struct bt_gatt_notify_params params = {0};
+
+	params.attr = &hids_obj->gp.svc.attrs[hids_inp_rep->att_ind];
+	params.data = rep;
+	params.len = hids_inp_rep->size;
+	params.func = cb;
+
+	int err = bt_gatt_notify_cb(conn, &params);
 
 	bt_conn_ctx_release(hids_obj->conn_ctx, (void *)conn_data);
 
@@ -1184,7 +1143,7 @@ static int boot_mouse_inp_report_notify_all(
 		if (ctx) {
 			bool notification_enabled =
 			    hids_is_notification_enabled(
-				ctx->conn, boot_mouse_inp_rep->ccc);
+				ctx->conn, boot_mouse_inp_rep->ccc.cfg);
 
 			if (notification_enabled) {
 				conn_data = ctx->data;
@@ -1207,9 +1166,14 @@ static int boot_mouse_inp_report_notify_all(
 	}
 
 	if (rep_data != NULL) {
-		return bt_gatt_notify_cb(
-		    NULL, &hids_obj->svc.attrs[rep_ind], rep_buff,
-		    sizeof(conn_data->hids_boot_mouse_inp_rep_ctx), cb, NULL);
+		struct bt_gatt_notify_params params = {0};
+
+		params.attr = &hids_obj->gp.svc.attrs[rep_ind];
+		params.data = rep_buff;
+		params.len = sizeof(conn_data->hids_boot_mouse_inp_rep_ctx);
+		params.func = cb;
+
+		return bt_gatt_notify_cb(NULL, &params);
 	} else {
 		return -ENODATA;
 	}
@@ -1232,15 +1196,15 @@ int bt_gatt_hids_boot_mouse_inp_rep_send(struct bt_gatt_hids *hids_obj,
 							x_delta, y_delta, cb);
 	}
 
-	if (!hids_is_notification_enabled(conn, boot_mouse_inp_rep->ccc)) {
+	if (!hids_is_notification_enabled(conn, boot_mouse_inp_rep->ccc.cfg)) {
 		return -EACCES;
 	}
 
 	struct bt_gatt_hids_conn_data *conn_data =
 		bt_conn_ctx_get(hids_obj->conn_ctx, conn);
 
-	static_assert(sizeof(conn_data->hids_boot_mouse_inp_rep_ctx) >= 3,
-		      "buffer is too short");
+	BUILD_ASSERT_MSG(sizeof(conn_data->hids_boot_mouse_inp_rep_ctx) >= 3,
+			 "buffer is too short");
 
 	if (!conn_data) {
 		LOG_WRN("The context was not found");
@@ -1256,9 +1220,14 @@ int bt_gatt_hids_boot_mouse_inp_rep_send(struct bt_gatt_hids *hids_obj,
 	rep_data[1] = (u8_t)x_delta;
 	rep_data[2] = (u8_t)y_delta;
 
-	int err = bt_gatt_notify_cb(
-	    conn, &hids_obj->svc.attrs[rep_ind], rep_data,
-	    sizeof(conn_data->hids_boot_mouse_inp_rep_ctx), cb, NULL);
+	struct bt_gatt_notify_params params = {0};
+
+	params.attr = &hids_obj->gp.svc.attrs[rep_ind];
+	params.data = rep_data;
+	params.len = sizeof(conn_data->hids_boot_mouse_inp_rep_ctx);
+	params.func = cb;
+
+	int err = bt_gatt_notify_cb(conn, &params);
 
 	rep_data[1] = 0;
 	rep_data[2] = 0;
@@ -1287,7 +1256,7 @@ boot_kb_inp_notify_all(struct bt_gatt_hids *hids_obj, u8_t const *rep,
 		if (ctx) {
 			bool notification_enabled =
 			    hids_is_notification_enabled(
-				ctx->conn, boot_kb_inp_rep->ccc);
+				ctx->conn, boot_kb_inp_rep->ccc.cfg);
 
 			if (notification_enabled) {
 				conn_data = ctx->data;
@@ -1305,9 +1274,14 @@ boot_kb_inp_notify_all(struct bt_gatt_hids *hids_obj, u8_t const *rep,
 	}
 
 	if (rep_data != NULL) {
-		return bt_gatt_notify_cb(
-		    NULL, &hids_obj->svc.attrs[rep_ind], rep_data,
-		    sizeof(conn_data->hids_boot_kb_inp_rep_ctx), cb, NULL);
+		struct bt_gatt_notify_params params = {0};
+
+		params.attr = &hids_obj->gp.svc.attrs[rep_ind];
+		params.data = rep_data;
+		params.len = sizeof(conn_data->hids_boot_kb_inp_rep_ctx);
+		params.func = cb;
+
+		return bt_gatt_notify_cb(NULL, &params);
 	} else {
 		return -ENODATA;
 	}
@@ -1327,7 +1301,7 @@ int bt_gatt_hids_boot_kb_inp_rep_send(struct bt_gatt_hids *hids_obj,
 					      boot_kb_input_report, cb);
 	}
 
-	if (!hids_is_notification_enabled(conn, boot_kb_input_report->ccc)) {
+	if (!hids_is_notification_enabled(conn, boot_kb_input_report->ccc.cfg)) {
 		return -EACCES;
 	}
 
@@ -1349,10 +1323,14 @@ int bt_gatt_hids_boot_kb_inp_rep_send(struct bt_gatt_hids *hids_obj,
 	memset(&rep_data[len], 0,
 	       (sizeof(conn_data->hids_boot_kb_inp_rep_ctx) - len));
 
-	int err =
-	    bt_gatt_notify_cb(conn, &hids_obj->svc.attrs[rep_ind], rep_data,
-			      sizeof(conn_data->hids_boot_kb_inp_rep_ctx),
-			      cb, NULL);
+	struct bt_gatt_notify_params params = {0};
+
+	params.attr = &hids_obj->gp.svc.attrs[rep_ind];
+	params.data = rep_data;
+	params.len = sizeof(conn_data->hids_boot_kb_inp_rep_ctx);
+	params.func = cb;
+
+	int err = bt_gatt_notify_cb(conn, &params);
 
 	bt_conn_ctx_release(hids_obj->conn_ctx, (void *)conn_data);
 

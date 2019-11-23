@@ -42,6 +42,8 @@ enum nrf_cloud_evt_type {
 	NRF_CLOUD_EVT_SENSOR_DATA_ACK,
 	/** The transport was disconnected. */
 	NRF_CLOUD_EVT_TRANSPORT_DISCONNECTED,
+	/** The device should be restarted to apply a firmware upgrade */
+	NRF_CLOUD_EVT_FOTA_DONE,
 	/** There was an error communicating with the cloud. */
 	NRF_CLOUD_EVT_ERROR = 0xFF
 };
@@ -243,6 +245,16 @@ int nrf_cloud_sensor_attach(const struct nrf_cloud_sa_param *param);
  *           Otherwise, a (negative) error code is returned.
  */
 int nrf_cloud_sensor_data_send(const struct nrf_cloud_sensor_data *param);
+
+/**
+ * @brief Update the device shadow with sensor data.
+ *
+ * @param[in] param Sensor data.
+ *
+ * @retval 0 If successful.
+ *           Otherwise, a (negative) error code is returned.
+ */
+int nrf_cloud_shadow_update(const struct nrf_cloud_sensor_data *param);
 
 /**
  * @brief Stream sensor data.

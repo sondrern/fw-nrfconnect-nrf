@@ -22,6 +22,7 @@
 
 #include <stddef.h>
 #include <zephyr/types.h>
+#include <fw_info.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -51,6 +52,30 @@ void spm_request_system_reboot(void);
  */
 int spm_request_random_number(u8_t *output, size_t len, size_t *olen);
 
+
+/** Request a read operation to be executed from Secure Firmware.
+ *
+ * @param[out] destination Pointer to destination array where the content is
+ *                         to be copied.
+ * @param[in]  addr        Address to be copied from.
+ * @param[in]  len         Number of bytes to copy.
+ *
+ * @retval 0        If successful.
+ * @retval -EINVAL  If destination is NULL, or if len is <= 0.
+ * @retval -EPERM   If source is outside of allowed ranges.
+ */
+int spm_request_read(void *destination, u32_t addr, size_t len);
+
+/** Search for the firmware_info structure in firmware image located at address.
+ *
+ * @param[in]   firmware_address Address where firmware image is stored.
+ * @param[out]  info		 Pointer to where found info is stored.
+ *
+ * @retval 0        If successful.
+ * @retval -EINVAL  If info is NULL.
+ * @retval -EFAULT  If no info is found.
+ */
+int spm_firmware_info(u32_t fw_address, struct fw_info *info);
 
 #ifdef __cplusplus
 }

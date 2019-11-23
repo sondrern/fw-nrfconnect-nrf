@@ -1,4 +1,6 @@
+#
 # Copyright (c) 2019 Nordic Semiconductor ASA
+#
 # SPDX-License-Identifier: LicenseRef-BSD-5-Clause-Nordic
 
 from events import EventsData
@@ -8,6 +10,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import logging
 import csv
+import os
+
+
+OUTPUT_FOLDER = "data_stats/"
 
 
 class EventState(Enum):
@@ -23,6 +29,7 @@ class StatsNordic():
         self.processed_data.raw_data.read_data_from_files(
                                       events_filename, events_types_filename)
         self.processed_data.match_event_processing()
+
         self.logger = logging.getLogger('Stats Nordic')
         self.logger_console = logging.StreamHandler()
         self.logger.setLevel(log_lvl)
@@ -32,12 +39,21 @@ class StatsNordic():
         self.logger.addHandler(self.logger_console)
 
     def calculate_stats_preset1(self, start_meas, end_meas):
-        self.time_between_events("hid_report_sent_event", EventState.SUBMIT,
-                                 "motion_event", EventState.SUBMIT,
-                                 4000, start_meas, end_meas)
-        self.time_between_events("hid_report_sent_event", EventState.SUBMIT,
-                                 "hid_report_sent_event", EventState.SUBMIT,
-                                 4000, start_meas, end_meas)
+        self.time_between_events("hid_mouse_event_dongle", EventState.SUBMIT,
+                                 "hid_report_sent_event_device", EventState.SUBMIT,
+                                 0.05, start_meas, end_meas)
+        self.time_between_events("hid_mouse_event_dongle", EventState.SUBMIT,
+                                 "hid_report_sent_event_device", EventState.SUBMIT,
+                                 0.05, start_meas, end_meas)
+        self.time_between_events("hid_report_sent_event_dongle", EventState.SUBMIT,
+                                 "hid_report_sent_event_dongle", EventState.SUBMIT,
+                                 0.05, start_meas, end_meas)
+        self.time_between_events("hid_mouse_event_dongle", EventState.SUBMIT,
+                                 "hid_report_sent_event_dongle", EventState.SUBMIT,
+                                 0.05, start_meas, end_meas)
+        self.time_between_events("hid_mouse_event_device", EventState.SUBMIT,
+                                 "hid_mouse_event_dongle", EventState.SUBMIT,
+                                 0.05, start_meas, end_meas)
         plt.show()
 
     def _get_timestamps(self, event_name, event_state, start_meas, end_meas):
@@ -88,13 +104,15 @@ class StatsNordic():
         stats_text += "{0:.3f}".format(np.std(times_between)) + "ms\n"
         stats_text += "Median time: "
         stats_text += "{0:.3f}".format(np.median(times_between)) + "ms\n"
+        stats_text += "Number of records: {}".format(len(times_between)) + "\n"
 
         return stats_text
 
     def time_between_events(self, start_event_name, start_event_state,
-                            end_event_name, end_event_state, hist_bin_cnt=400,
+                            end_event_name, end_event_state, hist_bin_width=0.01,
                             start_meas=0, end_meas=float('inf')):
-
+        self.logger.info("Stats calculating: {}->{}".format(start_event_name,
+                                                            end_event_name))
         if not self.processed_data.tracking_execution:
             if start_event_state != EventState.SUBMIT or \
               end_event_state != EventState.SUBMIT:
@@ -118,6 +136,13 @@ class StatsNordic():
             self.logger.error("No events logged: " + stop_event_name)
             return
 
+        if len(start_times) != len(end_times):
+            self.logger.error("Number of start_times and end_times is not equal")
+            self.logger.error("Got {} start_times and {} end_times".format(
+                len(start_times), len(end_times)))
+
+            return
+
         times_between = self.calculate_times_between(start_times, end_times)
         stats_text = self.prepare_stats_txt(times_between)
 
@@ -135,7 +160,7 @@ class StatsNordic():
                                           facecolor='linen'))
 
         plt.xlabel('Duration[ms]')
-        plt.ylabel('Number of occurences')
+        plt.ylabel('Number of occurrences')
 
         event_status_str = {
                         EventState.SUBMIT : "submission",
@@ -148,8 +173,16 @@ class StatsNordic():
                 end_event_name + ' ' + event_status_str[end_event_state] + \
                 ' (' + self.data_name + ')'
         plt.title(title)
+        plt.hist(times_between, bins = (int)((max(times_between) - min(times_between))
+                                        / hist_bin_width))
 
-        plt.hist(times_between, bins = hist_bin_cnt)
         plt.yscale('log')
         plt.grid(True)
-        plt.savefig(title.lower().replace(' ', '_').replace('\n', '_') +'.png')
+
+        dir_name = "{}{}_{}_{}/".format(OUTPUT_FOLDER, self.data_name,
+                                        int(start_meas), int(end_meas))
+        if not os.path.exists(dir_name):
+            os.makedirs(dir_name)
+
+        plt.savefig(dir_name +
+                    title.lower().replace(' ', '_').replace('\n', '_') +'.png')

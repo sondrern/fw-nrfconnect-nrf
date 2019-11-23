@@ -6,28 +6,19 @@ Building and programming a sample application
 The recommended way of building and programming an |NCS| sample is to use
 the Nordic Edition of the SEGGER Embedded Studio (SES) IDE.
 
-SEGGER Embedded Studio is free of charge for use with Nordic Semiconductor
-devices. After downloading it, you can register and activate a free license.
-
 
 .. note::
 	If you prefer to build your applications from the command line,
 	see :ref:`zephyr:getting_started_run_sample`.
 
+.. _gs_programming_ses:
+
 Building with SES
 *****************
 
-You must install a special version of SEGGER Embedded Studio to be able to open
-and compile the projects in the |NCS|.
-You can download it from the following links:
+Complete the following steps to build |NCS| projects with SES after :ref:`installing SEGGER Embedded Studio <installing_ses_win>` and :ref:`completing the first time setup <build_environment_win>`:
 
-* `SEGGER Embedded Studio (Nordic Edition) - Windows x86`_
-* `SEGGER Embedded Studio (Nordic Edition) - Windows x64`_
-* `SEGGER Embedded Studio (Nordic Edition) - Mac OS x64`_
-* `SEGGER Embedded Studio (Nordic Edition) - Linux x86`_
-* `SEGGER Embedded Studio (Nordic Edition) - Linux x64`_
-
-1. Extract the downloaded package and run the file :file:`bin/emStudio`.
+1. Run the file :file:`bin/emStudio`.
 
 #. Select **File -> Open nRF Connect SDK Project**.
 
@@ -35,17 +26,6 @@ You can download it from the following links:
        :alt: Open nRF Connect SDK Project menu
 
        Open nRF Connect SDK Project menu
-
-#. The first time you import an |NCS| project, SES will prompt you to set the paths to the Zephyr Base directory and the GNU ARM Embedded Toolchain.
-   Set the Zephyr Base directory to the full path to ``ncs\zephyr``.
-   The GNU ARM Embedded Toolchain directory is the directory where you installed the toolchain (for example, ``c:\gnuarmemb``).
-
-    .. figure:: images/ses_notset.png
-       :alt: Zephyr Base Not Set prompt
-
-       Zephyr Base Not Set prompt
-
-   If you want to change these settings later, click **Tools -> Options** and select the **nRF Connect** tab (see :ref:`ses_options_figure`).
 
 #. To import a project into SES, you must specify the following information:
 
@@ -65,30 +45,30 @@ You can download it from the following links:
 #. Click **OK** to import the project into SES. You can now work with the
    project in the IDE.
 
-#. Build and flash your project.
+#. Build and program your project.
    The required steps differ depending on if you build a single application or a multi-image project (such as the nRF9160 samples, which include :ref:`SPM <secure_partition_manager>`).
 
    .. important::
-      If you are working with an nRF9160 DK, make sure to select the correct controller before you flash the application to your board.
+      If you are working with an nRF9160 DK, make sure to select the correct controller before you program the application to your board.
 
       Put the **SW5** switch (marked debug/prog) in the **NRF91** position to program the main controller, or in the **NRF52** position to program the board controller.
       See the `Device programming section in the nRF9160 DK User Guide`_ for more information.
 
-   To build and flash an application:
+   To build and program an application:
 
       a. Select your project in the Project Explorer.
       #. From the menu, select **Build -> Build Solution**.
-      #. When the build completes, you can flash the sample to a connected board:
+      #. When the build completes, you can program the sample to a connected board:
 
          * For a single-image application, select **Target -> Download zephyr/zephyr.elf**.
          * For a multi-image application, select **Target -> Download zephyr/merged.hex**.
 
       .. note::
 	   Alternatively, choose the **Build and Debug** option.
-	   **Build and Debug** will build the application and flash it when
+	   **Build and Debug** will build the application and program it when
 	   the build completes.
 
-7. To inspect the details of the flashed code and the memory usage, click **Debug -> Go**.
+7. To inspect the details of the code that was programmed and the memory usage, click **Debug -> Go**.
 
    .. note::
    	In a multi-image build, this allows you to debug the source code of your application only.

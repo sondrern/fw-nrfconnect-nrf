@@ -17,6 +17,15 @@
 LOG_MODULE_REGISTER(pmw3360, CONFIG_PMW3360_LOG_LEVEL);
 
 
+#define PMW3360_SPI_DEV_NAME DT_INST_0_PIXART_PMW3360_BUS_NAME
+
+#define PMW3360_IRQ_GPIO_DEV_NAME DT_INST_0_PIXART_PMW3360_IRQ_GPIOS_CONTROLLER
+#define PMW3360_IRQ_GPIO_PIN      DT_INST_0_PIXART_PMW3360_IRQ_GPIOS_PIN
+
+#define PMW3360_CS_GPIO_DEV_NAME DT_INST_0_PIXART_PMW3360_CS_GPIOS_CONTROLLER
+#define PMW3360_CS_GPIO_PIN      DT_INST_0_PIXART_PMW3360_CS_GPIOS_PIN
+
+
 /* Timings defined by spec */
 #define T_NCS_SCLK	1			/* 120 ns */
 #define T_SRX		(20 - T_NCS_SCLK)	/* 20 us */
@@ -125,6 +134,7 @@ struct pmw3360_data {
 	s16_t                        x;
 	s16_t                        y;
 	sensor_trigger_handler_t     data_ready_handler;
+	struct k_work                trigger_handler_work;
 	struct k_delayed_work        init_work;
 	enum async_init_step         async_init_step;
 	int                          err;
@@ -135,8 +145,8 @@ struct pmw3360_data {
 static const struct spi_config spi_cfg = {
 	.operation = SPI_WORD_SET(8) | SPI_TRANSFER_MSB |
 		     SPI_MODE_CPOL | SPI_MODE_CPHA,
-	.frequency = CONFIG_DESKTOP_SPI_FREQ_HZ,
-	.slave = 0,
+	.frequency = DT_INST_0_PIXART_PMW3360_SPI_MAX_FREQUENCY,
+	.slave = DT_INST_0_PIXART_PMW3360_BASE_ADDRESS,
 };
 
 static const s32_t async_init_delay[ASYNC_INIT_STEP_COUNT] = {
@@ -176,7 +186,7 @@ static int spi_cs_ctrl(struct pmw3360_data *dev_data, bool enable)
 		k_busy_wait(T_NCS_SCLK);
 	}
 
-	err = gpio_pin_write(dev_data->cs_gpio_dev, CONFIG_PMW3360_CS_GPIO_PIN,
+	err = gpio_pin_write(dev_data->cs_gpio_dev, PMW3360_CS_GPIO_PIN,
 			     val);
 	if (err) {
 		LOG_ERR("SPI CS ctrl failed");
@@ -609,17 +619,49 @@ static int pmw3360_async_init_fw_load_verify(struct pmw3360_data *dev_data)
 static void irq_handler(struct device *gpiob, struct gpio_callback *cb,
 			u32_t pins)
 {
+	int err;
+
+	err = gpio_pin_disable_callback(pmw3360_data.irq_gpio_dev,
+					PMW3360_IRQ_GPIO_PIN);
+	if (unlikely(err)) {
+		LOG_ERR("Cannot disable IRQ");
+		k_panic();
+	}
+
+	k_work_submit(&pmw3360_data.trigger_handler_work);
+}
+
+static void trigger_handler(struct k_work *work)
+{
 	sensor_trigger_handler_t handler;
+	int err = 0;
 
 	k_spinlock_key_t key = k_spin_lock(&pmw3360_data.lock);
 	handler = pmw3360_data.data_ready_handler;
 	k_spin_unlock(&pmw3360_data.lock, key);
 
+	if (!handler) {
+		return;
+	}
+
 	struct sensor_trigger trig = {
 		.type = SENSOR_TRIG_DATA_READY,
 		.chan = SENSOR_CHAN_ALL,
 	};
+
 	handler(DEVICE_GET(pmw3360), &trig);
+
+	key = k_spin_lock(&pmw3360_data.lock);
+	if (pmw3360_data.data_ready_handler) {
+		err = gpio_pin_enable_callback(pmw3360_data.irq_gpio_dev,
+					       PMW3360_IRQ_GPIO_PIN);
+	}
+	k_spin_unlock(&pmw3360_data.lock, key);
+
+	if (unlikely(err)) {
+		LOG_ERR("Cannot re-enable IRQ");
+		k_panic();
+	}
 }
 
 static int pmw3360_async_init_power_up(struct pmw3360_data *dev_data)
@@ -685,14 +727,13 @@ static int pmw3360_init_cs(struct pmw3360_data *dev_data)
 	int err;
 
 	dev_data->cs_gpio_dev =
-		device_get_binding(CONFIG_PMW3360_CS_GPIO_DEV_NAME);
+		device_get_binding(PMW3360_CS_GPIO_DEV_NAME);
 	if (!dev_data->cs_gpio_dev) {
 		LOG_ERR("Cannot get CS GPIO device");
 		return -ENXIO;
 	}
 
-	err = gpio_pin_configure(dev_data->cs_gpio_dev,
-				 CONFIG_PMW3360_CS_GPIO_PIN,
+	err = gpio_pin_configure(dev_data->cs_gpio_dev, PMW3360_CS_GPIO_PIN,
 				 GPIO_DIR_OUT);
 	if (!err) {
 		err = spi_cs_ctrl(dev_data, false);
@@ -708,14 +749,14 @@ static int pmw3360_init_irq(struct pmw3360_data *dev_data)
 	int err;
 
 	dev_data->irq_gpio_dev =
-		device_get_binding(CONFIG_PMW3360_IRQ_GPIO_DEV_NAME);
+		device_get_binding(PMW3360_IRQ_GPIO_DEV_NAME);
 	if (!dev_data->irq_gpio_dev) {
 		LOG_ERR("Cannot get IRQ GPIO device");
 		return -ENXIO;
 	}
 
 	err = gpio_pin_configure(dev_data->irq_gpio_dev,
-				 CONFIG_PMW3360_IRQ_GPIO_PIN,
+				 PMW3360_IRQ_GPIO_PIN,
 				 GPIO_DIR_IN | GPIO_INT | GPIO_PUD_PULL_UP |
 				 GPIO_INT_LEVEL | GPIO_INT_ACTIVE_LOW);
 	if (err) {
@@ -724,7 +765,7 @@ static int pmw3360_init_irq(struct pmw3360_data *dev_data)
 	}
 
 	gpio_init_callback(&dev_data->irq_gpio_cb, irq_handler,
-			   BIT(CONFIG_PMW3360_IRQ_GPIO_PIN));
+			   BIT(PMW3360_IRQ_GPIO_PIN));
 
 	err = gpio_add_callback(dev_data->irq_gpio_dev, &dev_data->irq_gpio_cb);
 	if (err) {
@@ -736,7 +777,7 @@ static int pmw3360_init_irq(struct pmw3360_data *dev_data)
 
 static int pmw3360_init_spi(struct pmw3360_data *dev_data)
 {
-	dev_data->spi_dev = device_get_binding(CONFIG_PMW3360_SPI_DEV_NAME);
+	dev_data->spi_dev = device_get_binding(PMW3360_SPI_DEV_NAME);
 	if (!dev_data->spi_dev) {
 		LOG_ERR("Cannot get SPI device");
 		return -ENXIO;
@@ -751,6 +792,8 @@ static int pmw3360_init(struct device *dev)
 	int err;
 
 	ARG_UNUSED(dev);
+
+	k_work_init(&dev_data->trigger_handler_work, trigger_handler);
 
 	err = pmw3360_init_cs(dev_data);
 	if (err) {
@@ -783,28 +826,28 @@ static int pmw3360_sample_fetch(struct device *dev, enum sensor_channel chan)
 	ARG_UNUSED(dev);
 
 	if (unlikely(!dev_data->ready)) {
-		LOG_INF("Device is not initialized yet");
+		LOG_DBG("Device is not initialized yet");
 		return -EBUSY;
 	}
 
 	int err = motion_burst_read(dev_data, data, sizeof(data));
 
 	if (!err) {
-		s32_t x = sys_get_le16(&data[PMW3360_DX_POS]);
-		s32_t y = sys_get_le16(&data[PMW3360_DY_POS]);
+		s16_t x = sys_get_le16(&data[PMW3360_DX_POS]);
+		s16_t y = sys_get_le16(&data[PMW3360_DY_POS]);
 
 		if (IS_ENABLED(CONFIG_PMW3360_ORIENTATION_0)) {
-			dev_data->x = x;
+			dev_data->x = -x;
 			dev_data->y = y;
 		} else if (IS_ENABLED(CONFIG_PMW3360_ORIENTATION_90)) {
 			dev_data->x = y;
-			dev_data->y = -x;
+			dev_data->y = x;
 		} else if (IS_ENABLED(CONFIG_PMW3360_ORIENTATION_180)) {
-			dev_data->x = -x;
+			dev_data->x = x;
 			dev_data->y = -y;
 		} else if (IS_ENABLED(CONFIG_PMW3360_ORIENTATION_270)) {
 			dev_data->x = -y;
-			dev_data->y = x;
+			dev_data->y = -x;
 		}
 	}
 
@@ -819,7 +862,7 @@ static int pmw3360_channel_get(struct device *dev, enum sensor_channel chan,
 	ARG_UNUSED(dev);
 
 	if (unlikely(!dev_data->ready)) {
-		LOG_INF("Device is not initialized yet");
+		LOG_DBG("Device is not initialized yet");
 		return -EBUSY;
 	}
 
@@ -859,7 +902,7 @@ static int pmw3360_trigger_set(struct device *dev,
 	}
 
 	if (unlikely(!dev_data->ready)) {
-		LOG_INF("Device is not initialized yet");
+		LOG_DBG("Device is not initialized yet");
 		return -EBUSY;
 	}
 
@@ -867,10 +910,10 @@ static int pmw3360_trigger_set(struct device *dev,
 
 	if (handler) {
 		err = gpio_pin_enable_callback(dev_data->irq_gpio_dev,
-					       CONFIG_PMW3360_IRQ_GPIO_PIN);
+					       PMW3360_IRQ_GPIO_PIN);
 	} else {
 		err = gpio_pin_disable_callback(dev_data->irq_gpio_dev,
-						CONFIG_PMW3360_IRQ_GPIO_PIN);
+						PMW3360_IRQ_GPIO_PIN);
 	}
 
 	if (!err) {
@@ -896,7 +939,7 @@ static int pmw3360_attr_set(struct device *dev, enum sensor_channel chan,
 	}
 
 	if (unlikely(!dev_data->ready)) {
-		LOG_INF("Device is not initialized yet");
+		LOG_DBG("Device is not initialized yet");
 		return -EBUSY;
 	}
 
@@ -938,6 +981,6 @@ static const struct sensor_driver_api pmw3360_driver_api = {
 	.attr_set     = pmw3360_attr_set,
 };
 
-DEVICE_AND_API_INIT(pmw3360, CONFIG_PMW3360_DEV_NAME, pmw3360_init, NULL, NULL,
-		    POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY,
+DEVICE_AND_API_INIT(pmw3360, DT_INST_0_PIXART_PMW3360_LABEL, pmw3360_init,
+		    NULL, NULL, POST_KERNEL, CONFIG_SENSOR_INIT_PRIORITY,
 		    &pmw3360_driver_api);

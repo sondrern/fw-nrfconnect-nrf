@@ -6,7 +6,11 @@
 
 menu "Libraries"
 
+rsource "bin/Kconfig"
+
 rsource "bsdlib/Kconfig"
+
+rsource "at_notif/Kconfig"
 
 rsource "at_host/Kconfig"
 

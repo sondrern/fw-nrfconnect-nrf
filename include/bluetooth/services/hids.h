@@ -18,8 +18,21 @@
 extern "C" {
 #endif
 
+#include <bluetooth/gatt_pool.h>
 #include <bluetooth/gatt.h>
 #include <bluetooth/conn_ctx.h>
+
+#ifndef CONFIG_BT_GATT_HIDS_INPUT_REP_MAX
+#define CONFIG_BT_GATT_HIDS_INPUT_REP_MAX 0
+#endif
+
+#ifndef CONFIG_BT_GATT_HIDS_OUTPUT_REP_MAX
+#define CONFIG_BT_GATT_HIDS_OUTPUT_REP_MAX 0
+#endif
+
+#ifndef CONFIG_BT_GATT_HIDS_FEATURE_REP_MAX
+#define CONFIG_BT_GATT_HIDS_FEATURE_REP_MAX 0
+#endif
 
 /** Length of the Boot Mouse Input Report. */
 #define BT_GATT_HIDS_BOOT_MOUSE_REP_LEN		8
@@ -41,11 +54,9 @@ extern "C" {
 	BT_CONN_CTX_DEF(_name,						       \
 			CONFIG_BT_GATT_HIDS_MAX_CLIENT_COUNT,		       \
 			_BT_GATT_HIDS_CONN_CTX_SIZE_CALC(__VA_ARGS__));	       \
-	static struct bt_gatt_attr					       \
-		CONCAT(_name, _attr_tab)[CONFIG_BT_GATT_HIDS_ATTR_MAX] = { 0 };\
 	static struct bt_gatt_hids _name =				       \
 	{								       \
-		.svc = { .attrs = CONCAT(_name, _attr_tab) },		       \
+		.gp = BT_GATT_POOL_INIT(CONFIG_BT_GATT_HIDS_ATTR_MAX),	       \
 		.conn_ctx = &CONCAT(_name, _ctx_lib),			       \
 	}
 
@@ -62,12 +73,62 @@ extern "C" {
  */
 #define _BLE_GATT_HIDS_REPORT_ADD(_report_size) (_report_size) +
 
-/** HID Service information flags. */
+/** @brief Possible values for the Protocol Mode Characteristic value.
+ */
+enum bt_gatt_hids_pm {
+	/** Boot protocol. */
+	BT_GATT_HIDS_PM_BOOT = 0x00,
+	/** Report protocol. */
+	BT_GATT_HIDS_PM_REPORT = 0x01
+};
+
+/** @brief Report types as defined in the Report Reference Characteristic
+ *         descriptor.
+ */
+enum bt_gatt_hids_report_type {
+	/** Reserved value. */
+	BT_GATT_HIDS_REPORT_TYPE_RESERVED = 0x00,
+
+	/** Input Report. */
+	BT_GATT_HIDS_REPORT_TYPE_INPUT = 0x01,
+
+	/** Output report. */
+	BT_GATT_HIDS_REPORT_TYPE_OUTPUT = 0x02,
+
+	/** Feature Report. */
+	BT_GATT_HIDS_REPORT_TYPE_FEATURE = 0x03
+};
+
+/** @brief HID Service information.
+ */
+struct bt_gatt_hids_info {
+	/** Version of the base USB HID specification. */
+	u16_t bcd_hid;
+
+	/** Country ID code. HID device hardware localization.
+	 * Most hardware is not localized (value 0x00).
+	 */
+	u8_t b_country_code;
+
+	/** Information flags (see @ref bt_gatt_hids_flags). */
+	u8_t flags;
+};
+
+/** @brief HID Service information flags. */
 enum bt_gatt_hids_flags {
 	/** Device is capable of sending a wake-signal to a host. */
-	BT_GATT_HIDS_REMOTE_WAKE          = BIT(0),
+	BT_GATT_HIDS_REMOTE_WAKE = BIT(0),
 	/** Device advertises when bonded but not connected. */
 	BT_GATT_HIDS_NORMALLY_CONNECTABLE = BIT(1),
+};
+
+/** @brief HID Control Point settings. */
+enum bt_gatt_hids_control_point {
+	/** Suspend value for Control Point.  */
+	BT_GATT_HIDS_CONTROL_POINT_SUSPEND = 0x00,
+
+	/** Exit suspend value for Control Point.*/
+	BT_GATT_HIDS_CONTROL_POINT_EXIT_SUSPEND = 0x01
 };
 
 /** HID Service Protocol Mode events. */
@@ -92,19 +153,6 @@ enum bt_gatt_hids_notif_evt {
 	BT_GATT_HIDS_CCCD_EVT_NOTIF_ENABLED,
 	/** Notification disabled event. */
 	BT_GATT_HIDS_CCCD_EVT_NOTIF_DISABLED,
-};
-
-/** @brief HID Service information.
- */
-struct bt_gatt_hids_info {
-	/** Version of the base USB HID specification. */
-	u16_t bcd_hid;
-
-	/** Country ID code. */
-	u8_t b_country_code;
-
-	/** Information flags (see @ref bt_gatt_hids_flags). */
-	u8_t flags;
 };
 
 /** @brief Report data.
@@ -137,7 +185,7 @@ typedef void (*bt_gatt_hids_rep_handler_t) (struct bt_gatt_hids_rep *rep,
  */
 struct bt_gatt_hids_inp_rep {
 	/** CCC descriptor. */
-	struct bt_gatt_ccc_cfg ccc[BT_GATT_CCC_MAX];
+	struct _bt_gatt_ccc ccc;
 
 	/** Report ID defined in the HIDS Report Map. */
 	u8_t id;
@@ -153,6 +201,21 @@ struct bt_gatt_hids_inp_rep {
 
 	/** Report data offset. */
 	u8_t offset;
+
+	/** Report permissions
+	 *
+	 * Use GATT attribute permission bit field values here.
+	 * As input report can only be read only 3 flags are used:
+	 * - BT_GATT_PERM_READ
+	 * - BT_GATT_PERM_READ_ENCRYPT
+	 * - BT_GATT_PERM_READ_AUTHEN
+	 *
+	 * If no attribute is chosen, the configured default is used.
+	 *
+	 * The CCC register would have set the proper permissions for read and
+	 * write, based on the read permissions for the whole report.
+	 */
+	u8_t perm;
 
 	/** Pointer to report mask. The least significant bit
 	 * corresponds to the least significant byte of the report value.
@@ -189,6 +252,21 @@ struct bt_gatt_hids_outp_feat_rep {
 	/** Index in the service attribute array. */
 	u8_t att_ind;
 
+	/** Report permissions
+	 *
+	 * Use GATT attribute permission bit field values here.
+	 * Different permissions may be used for write and read:
+	 * - BT_GATT_PERM_READ
+	 * - BT_GATT_PERM_READ_ENCRYPT
+	 * - BT_GATT_PERM_READ_AUTHEN
+	 * - BT_GATT_PERM_WRITE
+	 * - BT_GATT_PERM_WRITE_ENCRYPT
+	 * - BT_GATT_PERM_WRITE_AUTHEN
+	 *
+	 * If no attribute is chosen, the configured default is used.
+	 */
+	u8_t perm;
+
 	/** Callback with updated report data. */
 	bt_gatt_hids_rep_handler_t handler;
 };
@@ -197,7 +275,7 @@ struct bt_gatt_hids_outp_feat_rep {
  */
 struct bt_gatt_hids_boot_mouse_inp_rep {
 	/** CCC descriptor. */
-	struct bt_gatt_ccc_cfg ccc[BT_GATT_CCC_MAX];
+	struct _bt_gatt_ccc ccc;
 
 	/** Index in the service attribute array. */
 	u8_t att_ind;
@@ -210,7 +288,7 @@ struct bt_gatt_hids_boot_mouse_inp_rep {
  */
 struct bt_gatt_hids_boot_kb_inp_rep {
 	/** CCC descriptor. */
-	struct bt_gatt_ccc_cfg ccc[BT_GATT_CCC_MAX];
+	struct _bt_gatt_ccc ccc;
 
 	/** Index in the service attribute array. */
 	u8_t att_ind;
@@ -280,7 +358,7 @@ typedef void (*bt_gatt_hids_pm_evt_handler_t) (enum bt_gatt_hids_pm_evt evt,
 
 /** @brief Protocol Mode.
  */
-struct bt_gatt_hids_pm {
+struct bt_gatt_hids_pm_data {
 	/** Callback with new Protocol Mode. */
 	bt_gatt_hids_pm_evt_handler_t evt_handler;
 };
@@ -346,7 +424,7 @@ struct bt_gatt_hids_init_param {
  */
 struct bt_gatt_hids {
 	/** Descriptor of the service attribute array. */
-	struct bt_gatt_service svc;
+	struct bt_gatt_pool gp;
 
 	/** Input Report collection. */
 	struct bt_gatt_hids_inp_rep_group inp_rep_group;
@@ -370,7 +448,7 @@ struct bt_gatt_hids {
 	struct bt_gatt_hids_rep_map rep_map;
 
 	/** Protocol Mode. */
-	struct bt_gatt_hids_pm pm;
+	struct bt_gatt_hids_pm_data pm;
 
 	/** Control Point. */
 	struct bt_gatt_hids_cp cp;

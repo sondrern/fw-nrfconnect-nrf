@@ -21,118 +21,170 @@ extern "C" {
 #include <bluetooth/gatt.h>
 #include <bluetooth/uuid.h>
 
-/**
- *  @brief Register a primary service descriptor.
+
+/** @brief Initialization of the GATT attribute pool variable.
  *
- *  @param _svc GATT service descriptor.
+ *  This macro creates the initializer for the new attribute pool.
+ *
+ *  @param _attr_array_size Size of the attribute array.
+ */
+#define BT_GATT_POOL_INIT(_attr_array_size)                                    \
+	{                                                                      \
+		.svc =                                                         \
+		{                                                              \
+			.attrs = (struct bt_gatt_attr[_attr_array_size])       \
+				{ {0} }                                        \
+		},                                                             \
+		.attr_array_size = _attr_array_size                            \
+	}
+
+/** @brief Define a new BLE GATT attribute pool.
+ *
+ *  This macro creates a new attribute pool.
+ *
+ *  @param _name            Name of the pool created.
+ *  @param _attr_array_size Size of the attribute array.
+ */
+#define BT_GATT_POOL_DEF(_name, _attr_array_size) \
+	const static struct bt_gatt_pool _name =  \
+		BT_GATT_POOL_INIT(_attr_array_size)
+
+/** @brief Register a primary service descriptor.
+ *
+ *  @param _gp GATT service object with dynamic attribute allocation.
  *  @param _svc_uuid_init Service UUID.
  */
-#define BT_GATT_POOL_SVC_GET(_svc, _svc_uuid_init)                             \
-	{                                                                      \
-		struct bt_uuid *_svc_uuid = _svc_uuid_init;                    \
-		bt_gatt_pool_svc_get(_svc, _svc_uuid);                         \
-	}
+#define BT_GATT_POOL_SVC(_gp, _svc_uuid_init)                                  \
+	do {                                                                   \
+		int _ret;                                                      \
+		const struct bt_uuid *_svc_uuid = _svc_uuid_init;              \
+		_ret = bt_gatt_pool_svc_alloc(_gp, _svc_uuid);                 \
+		__ASSERT_NO_MSG(!_ret);                                        \
+		(void)_ret;                                                    \
+	} while (0)
 
-/**
- *  @brief Register a characteristic descriptor.
+/** @brief Register a characteristic descriptor.
  *
- *  @param _svc GATT service descriptor.
- *  @param _chrc_uuid_init Characteristic UUID.
- *  @param _char_props Properties of the characteristic.
+ *  @param _gp GATT service object with dynamic attribute allocation.
+ *  @param _uuid Characteristic UUID.
+ *  @param _props Characteristic properties.
+ *  @param _perm Characteristic access permissions.
+ *  @param _read Characteristic read callback.
+ *  @param _write Characteristic write callback.
+ *  @param _value Characteristic value.
  */
-#define BT_GATT_POOL_CHRC_GET(_svc, _chrc_uuid_init, _char_props)              \
-	{                                                                      \
-		struct bt_gatt_chrc _chrc = {                                  \
-		    .uuid = _chrc_uuid_init,                                   \
-		    .properties = _char_props,                                 \
-		};                                                             \
-		bt_gatt_pool_chrc_get(_svc, &_chrc);                           \
-	}
+#define BT_GATT_POOL_CHRC(_gp, _uuid, _props, _perm, _read, _write, _value)    \
+	do {                                                                   \
+		int _ret;                                                      \
+		const struct bt_gatt_attr _attr = BT_GATT_ATTRIBUTE(           \
+			_uuid, _perm, _read, _write, _value);                  \
+		_ret = bt_gatt_pool_chrc_alloc(_gp, _props, &_attr);           \
+		__ASSERT_NO_MSG(!_ret);                                        \
+		(void)_ret;                                                    \
+	} while (0)
 
-/**
- *  @brief Register an attribute descriptor.
+/** @brief Register an attribute descriptor.
  *
- *  @param _svc GATT service descriptor.
- *  @param _descriptor_init Attribute descriptor.
+ *  @param _gp GATT service object with dynamic attribute allocation.
+ *  @param _uuid Descriptor UUID.
+ *  @param _perm Descriptor access permissions.
+ *  @param _read Descriptor read callback.
+ *  @param _write Descriptor write callback.
+ *  @param _value Descriptor value.
  */
-#define BT_GATT_POOL_DESC_GET(_svc, _descriptor_init)                          \
-	{                                                                      \
-		struct bt_gatt_attr _descriptor = _descriptor_init;            \
-		bt_gatt_pool_desc_get(_svc, &_descriptor);                     \
-	}
+#define BT_GATT_POOL_DESC(_gp, _uuid, _perm, _read, _write, _value)            \
+	do {                                                                   \
+		int _ret;                                                      \
+		const struct bt_gatt_attr _descriptor = BT_GATT_DESCRIPTOR(    \
+			_uuid, _perm, _read, _write, _value);                  \
+		_ret = bt_gatt_pool_desc_alloc(_gp, &_descriptor);             \
+		__ASSERT_NO_MSG(!_ret);                                        \
+		(void)_ret;                                                    \
+	} while (0)
 
-/**
- *  @brief Register a CCC descriptor.
+/** @brief Register a CCC descriptor.
  *
- *  @param _svc GATT service descriptor.
- *  @param _ccc_cfg CCC descriptor configuration.
- *  @param _ccc_cb CCC descriptor callback.
+ *  @param _gp GATT service object with dynamic attribute allocation.
+ *  @param _ccc CCC descriptor configuration.
+ *  @param _cb CCC descriptor callback.
+ *  @param _perm CCC descriptor permissions.
  */
-#define BT_GATT_POOL_CCC_GET(_svc, _ccc_cfg, _ccc_cb)                          \
-	{                                                                      \
-		struct _bt_gatt_ccc _ccc = {                                   \
-		    .cfg = _ccc_cfg,                                           \
-		    .cfg_len = ARRAY_SIZE(_ccc_cfg),                           \
-		    .cfg_changed = _ccc_cb,                                    \
-		};                                                             \
-		bt_gatt_pool_ccc_get(_svc, &_ccc);                             \
-	}
+#define BT_GATT_POOL_CCC(_gp, _ccc, _ccc_changed, _perm)                       \
+	do {                                                                   \
+		int _ret;                                                      \
+		_ccc = (struct _bt_gatt_ccc)BT_GATT_CCC_INITIALIZER(\
+			_ccc_changed, NULL, NULL);      \
+		_ret = bt_gatt_pool_ccc_alloc(_gp, &_ccc, _perm);              \
+		__ASSERT_NO_MSG(!_ret);                                        \
+		(void)_ret;                                                    \
+	} while (0)
+
+
+/** @brief The GATT service object that uses dynamic attribute allocation.
+ *
+ * This structure contains the SVC object together with the number of the
+ * attributes available.
+ */
+struct bt_gatt_pool {
+	/** GATT service descriptor. */
+	struct bt_gatt_service svc;
+	/** Maximum number of attributes supported. */
+	size_t attr_array_size;
+};
 
 /** @brief Take a primary service descriptor from the pool.
  *
- *  @param svc GATT service descriptor.
+ *  @param gp GATT service object with dynamic attribute allocation.
  *  @param svc_uuid Service UUID.
- */
-void bt_gatt_pool_svc_get(struct bt_gatt_service *svc,
-			  struct bt_uuid const *svc_uuid);
-
-/** @brief Return a primary service descriptor to the pool.
  *
- *  @param attr Attribute describing the primary service to be returned.
+ *  @retval 0 Operation finished successfully.
+ *  @retval -EINVAL Invalid input value.
+ *  @retval -ENOSPC Number of arguments in @c svc would exceed @c array_size.
+ *  @retval -ENOMEM No internal memory in the gatt_poll module.
  */
-void bt_gatt_pool_svc_put(struct bt_gatt_attr const *attr);
+int bt_gatt_pool_svc_alloc(struct bt_gatt_pool *gp,
+			   struct bt_uuid const *svc_uuid);
 
 /** @brief Take a characteristic descriptor from the pool.
  *
- *  @param svc GATT service descriptor.
- *  @param chrc Characteristic descriptor.
- */
-void bt_gatt_pool_chrc_get(struct bt_gatt_service *svc,
-			   struct bt_gatt_chrc const *chrc);
-
-/** @brief Return a characteristic descriptor to the pool.
+ *  @param gp   GATT service object with dynamic attribute allocation.
+ *  @param _chrc_uuid Characteristic UUID.
+ *  @param _char_props Properties of the characteristic.
+ *  @param _attr Characteristic value attribute.
  *
- *  @param attr Attribute describing the characteristic to be returned.
+ *  @return 0 or a negative error code.
  */
-void bt_gatt_pool_chrc_put(struct bt_gatt_attr const *attr);
+int bt_gatt_pool_chrc_alloc(struct bt_gatt_pool *gp, u8_t props,
+			    struct bt_gatt_attr const *attr);
 
 /** @brief Take an attribute descriptor from the pool.
  *
- *  @param svc GATT service descriptor.
+ *  @param gp GATT service object with dynamic attribute allocation.
  *  @param descriptor Attribute descriptor.
- */
-void bt_gatt_pool_desc_get(struct bt_gatt_service *svc,
-			   struct bt_gatt_attr const *descriptor);
-
-/** @brief Return an attribute descriptor to the pool.
  *
- *  @param attr Attribute describing the descriptor to be returned.
+ *  @return 0 or negative error code.
  */
-void bt_gatt_pool_desc_put(struct bt_gatt_attr const *attr);
+int bt_gatt_pool_desc_alloc(struct bt_gatt_pool *gp,
+			    struct bt_gatt_attr const *descriptor);
 
 /** @brief Take a CCC descriptor from the pool.
  *
- *  @param svc GATT service descriptor.
+ *  @param gp GATT service object with dynamic attribute allocation.
  *  @param ccc CCC descriptor.
- */
-void bt_gatt_pool_ccc_get(struct bt_gatt_service *svc,
-			  struct _bt_gatt_ccc const *ccc);
-
-/** @brief Return a CCC descriptor to the pool.
+ *  @param perm Permissions to access CCC.
+ *              Use the GATT attribute permission bit field values.
  *
- *  @param attr Attribute describing the CCC descriptor to be returned.
+ *  @return 0 or negative error code.
  */
-void bt_gatt_pool_ccc_put(struct bt_gatt_attr const *attr);
+int bt_gatt_pool_ccc_alloc(struct bt_gatt_pool *gp,
+			   struct _bt_gatt_ccc *ccc,
+			   u8_t perm);
+
+/** @brief Free the whole dynamically created GATT service.
+ *
+ *  @param gp GATT service object with dynamic attribute allocation.
+ */
+void bt_gatt_pool_free(struct bt_gatt_pool *gp);
 
 #if CONFIG_BT_GATT_POOL_STATS != 0
 /** @brief Print basic module statistics (containing pool size usage).

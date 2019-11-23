@@ -31,7 +31,7 @@ static bool config_id_is_supported(u8_t event_id)
 		return false;
 	}
 
-	if (IS_ENABLED(CONFIG_DESKTOP_MOTION_OPTICAL_ENABLE)) {
+	if (IS_ENABLED(CONFIG_DESKTOP_MOTION_SENSOR_ENABLE)) {
 		if (MOD_FIELD_GET(event_id) == SETUP_MODULE_SENSOR) {
 			return true;
 		}
@@ -40,15 +40,11 @@ static bool config_id_is_supported(u8_t event_id)
 	return false;
 }
 
-static int settings_set(int argc, char **argv, size_t len_rd,
+static int settings_set(const char *key, size_t len_rd,
 			settings_read_cb read_cb, void *cb_arg)
 {
-	if (argc != 1) {
-		return -ENOENT;
-	}
-
 	char *end;
-	long int val = strtol(argv[0], &end, 10);
+	long int val = strtol(key, &end, 10);
 	if ((*end != '\0') || (val < 0) || (val > UCHAR_MAX)) {
 		LOG_WRN("ID is not a valid number");
 		return 0;
@@ -202,7 +198,7 @@ static bool module_event_handler(const struct module_state_event *event)
 #if CONFIG_DESKTOP_BLE_ADVERTISING_ENABLE
 		MODULE_ID(ble_adv),
 #endif
-#if CONFIG_DESKTOP_MOTION_OPTICAL_ENABLE
+#if CONFIG_DESKTOP_MOTION_SENSOR_ENABLE
 		MODULE_ID(motion),
 #endif
 #if CONFIG_DESKTOP_BLE_SCANNING_ENABLE
@@ -212,8 +208,8 @@ static bool module_event_handler(const struct module_state_event *event)
 
 	static u32_t req_state;
 
-	static_assert(ARRAY_SIZE(req_modules) < (8 * sizeof(req_state)),
-		      "Array size bigger than number of bits");
+	BUILD_ASSERT_MSG(ARRAY_SIZE(req_modules) < (8 * sizeof(req_state)),
+			 "Array size bigger than number of bits");
 
 	if (req_state == BIT_MASK(ARRAY_SIZE(req_modules))) {
 		/* Already initialized */
@@ -272,5 +268,5 @@ static bool event_handler(const struct event_header *eh)
 EVENT_LISTENER(MODULE, event_handler);
 EVENT_SUBSCRIBE(MODULE, module_state_event);
 #if CONFIG_DESKTOP_CONFIG_CHANNEL_ENABLE
-EVENT_SUBSCRIBE(MODULE, config_event);
+EVENT_SUBSCRIBE_EARLY(MODULE, config_event);
 #endif

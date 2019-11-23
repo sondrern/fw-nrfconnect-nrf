@@ -23,7 +23,7 @@ static int log_hid_keyboard_event(const struct event_header *eh, char *buf,
 	char keys_str[ARRAY_SIZE(event->keys) * 5 + 1];
 	int pos = 0;
 
-	static_assert(sizeof(event->keys[0]) == 1, "");
+	BUILD_ASSERT_MSG(sizeof(event->keys[0]) == 1, "");
 	for (size_t i = 0; i < ARRAY_SIZE(event->keys); i++) {
 		int tmp = snprintf(&keys_str[pos], sizeof(keys_str) - pos,
 				   "0x%02x ", event->keys[i]);
@@ -72,7 +72,7 @@ static void profile_hid_mouse_event(struct log_event_buf *buf,
 }
 
 EVENT_INFO_DEFINE(hid_mouse_event,
-		  ENCODE(PROFILER_ARG_S32, PROFILER_ARG_U8, PROFILER_ARG_S32,
+		  ENCODE(PROFILER_ARG_U32, PROFILER_ARG_U8, PROFILER_ARG_S32,
 			 PROFILER_ARG_S32, PROFILER_ARG_S32),
 		  ENCODE("subscriber", "buttons", "wheel", "dx", "dy"),
 		  profile_hid_mouse_event);
@@ -81,6 +81,38 @@ EVENT_TYPE_DEFINE(hid_mouse_event,
 		  IS_ENABLED(CONFIG_DESKTOP_INIT_LOG_HID_MOUSE_EVENT),
 		  log_hid_mouse_event,
 		  &hid_mouse_event_info);
+
+static int log_hid_consumer_ctrl_event(const struct event_header *eh, char *buf,
+				       size_t buf_len)
+{
+	const struct hid_consumer_ctrl_event *event =
+		cast_hid_consumer_ctrl_event(eh);
+
+	return snprintf(buf, buf_len,
+			"usage: 0x%" PRIx16 " => %p",
+			event->usage, event->subscriber);
+}
+
+static void profile_hid_consumer_ctrl_event(struct log_event_buf *buf,
+					    const struct event_header *eh)
+{
+	const struct hid_consumer_ctrl_event *event =
+		cast_hid_consumer_ctrl_event(eh);
+
+	ARG_UNUSED(event);
+	profiler_log_encode_u32(buf, (u32_t)event->subscriber);
+	profiler_log_encode_u32(buf, event->usage);
+}
+
+EVENT_INFO_DEFINE(hid_consumer_ctrl_event,
+		  ENCODE(PROFILER_ARG_U32, PROFILER_ARG_U16),
+		  ENCODE("subscriber", "usage"),
+		  profile_hid_consumer_ctrl_event);
+
+EVENT_TYPE_DEFINE(hid_consumer_ctrl_event,
+		  IS_ENABLED(CONFIG_DESKTOP_INIT_LOG_HID_CONSUMER_CTRL_EVENT),
+		  log_hid_consumer_ctrl_event,
+		  &hid_consumer_ctrl_event_info);
 
 static int log_hid_report_subscriber_event(const struct event_header *eh,
 					      char *buf, size_t buf_len)
